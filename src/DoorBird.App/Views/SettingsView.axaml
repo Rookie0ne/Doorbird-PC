@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DoorBird.App.ViewModels"
+             x:Class="DoorBird.App.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+    <ScrollViewer>
+        <StackPanel Margin="20" Spacing="15" MaxWidth="400">
+            <TextBlock Text="Device Settings" FontSize="20" FontWeight="Bold"/>
+
+            <StackPanel Spacing="5">
+                <TextBlock Text="Device Host (IP or hostname)"/>
+                <TextBox Text="{Binding DeviceHost}" Watermark="192.168.1.100"/>
+            </StackPanel>
+
+            <StackPanel Spacing="5">
+                <TextBlock Text="Username"/>
+                <TextBox Text="{Binding Username}"/>
+            </StackPanel>
+
+            <StackPanel Spacing="5">
+                <TextBlock Text="Password"/>
+                <TextBox Text="{Binding Password}" PasswordChar="*"/>
+            </StackPanel>
+
+            <StackPanel Spacing="5">
+                <TextBlock Text="Notification Port"/>
+                <NumericUpDown Value="{Binding NotificationPort}" Minimum="1024" Maximum="65535"/>
+            </StackPanel>
+
+            <StackPanel Spacing="5">
+                <TextBlock Text="Recording Path"/>
+                <TextBox Text="{Binding RecordingPath}"/>
+            </StackPanel>
+
+            <Button Command="{Binding SaveCommand}" Content="Save Settings" HorizontalAlignment="Left"/>
+            <TextBlock Text="{Binding Status}" Foreground="Green"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

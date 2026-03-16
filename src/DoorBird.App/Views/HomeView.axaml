@@ -1,0 +1,10 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DoorBird.App.ViewModels"
+             x:Class="DoorBird.App.Views.HomeView"
+             x:DataType="vm:HomeViewModel">
+    <StackPanel Margin="20" Spacing="10" VerticalAlignment="Center" HorizontalAlignment="Center">
+        <TextBlock Text="{Binding WelcomeMessage}" FontSize="28" FontWeight="Bold"/>
+        <TextBlock Text="{Binding Description}" FontSize="14" TextWrapping="Wrap" MaxWidth="400"/>
+    </StackPanel>
+</UserControl>

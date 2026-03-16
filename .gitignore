@@ -1,0 +1,26 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.DotSettings
+*.DotSettings.user
+
+## IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+
+## Build
+publish/
+out/
+
+## OS
+.DS_Store
+Thumbs.db
+
+## App settings (may contain credentials)
+appsettings.*.json

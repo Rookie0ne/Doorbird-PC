@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DoorBird.App.ViewModels"
+        x:Class="DoorBird.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="DoorBird" Width="900" Height="650"
+        WindowStartupLocation="CenterScreen">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <DockPanel>
+        <!-- Top toolbar -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="5" Margin="10">
+            <Button Command="{Binding ShowHomeCommand}" Content="Home"/>
+            <Button Command="{Binding ShowLiveViewCommand}" Content="Live View"/>
+            <Button Command="{Binding ShowHistoryCommand}" Content="History"/>
+            <Button Command="{Binding ShowSettingsCommand}" Content="Settings"/>
+            <Rectangle Width="1" Fill="Gray" Margin="5,0"/>
+            <Button Command="{Binding ConnectCommand}" Content="Connect"/>
+            <TextBlock Text="{Binding ConnectionStatus}" VerticalAlignment="Center" Margin="10,0"/>
+        </StackPanel>
+
+        <Separator DockPanel.Dock="Top"/>
+
+        <!-- Page content -->
+        <ContentControl Content="{Binding CurrentPage}" Margin="10"/>
+    </DockPanel>
+</Window>
