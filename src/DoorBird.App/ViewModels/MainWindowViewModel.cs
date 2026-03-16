@@ -31,6 +31,7 @@ public class MainWindowViewModel : ViewModelBase {
     public ReactiveCommand<Unit, Unit> ShowHomeCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowLiveViewCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowHistoryCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowIntercomCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowSettingsCommand { get; }
 
     public DeviceService DeviceService => _deviceService;
@@ -43,6 +44,7 @@ public class MainWindowViewModel : ViewModelBase {
         ShowHomeCommand = ReactiveCommand.Create(() => { CurrentPage = new HomeViewModel(); });
         ShowLiveViewCommand = ReactiveCommand.Create(() => { CurrentPage = new LiveViewModel(_deviceService); });
         ShowHistoryCommand = ReactiveCommand.Create(() => { CurrentPage = new HistoryViewModel(_deviceService); });
+        ShowIntercomCommand = ReactiveCommand.Create(() => { CurrentPage = new IntercomViewModel(_deviceService); });
         ShowSettingsCommand = ReactiveCommand.Create(() => { CurrentPage = new SettingsViewModel(_deviceService); });
     }
 

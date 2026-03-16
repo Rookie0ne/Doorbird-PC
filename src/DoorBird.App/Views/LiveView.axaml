@@ -1,16 +1,31 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:DoorBird.App.ViewModels"
+             xmlns:vlc="using:LibVLCSharp.Avalonia"
              x:Class="DoorBird.App.Views.LiveView"
              x:DataType="vm:LiveViewModel">
     <DockPanel>
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="10" Margin="0,10" HorizontalAlignment="Center">
             <Button Command="{Binding OpenDoorCommand}" Content="Open Door" Width="120"/>
             <Button Command="{Binding LightOnCommand}" Content="Light On" Width="120"/>
-            <Button Command="{Binding RefreshCommand}" Content="Refresh" Width="120"/>
+            <Button Command="{Binding ToggleModeCommand}" Width="120">
+                <Button.Content>
+                    <Panel>
+                        <TextBlock Text="Use Snapshots" IsVisible="{Binding UseRtsp}"/>
+                        <TextBlock Text="Use RTSP" IsVisible="{Binding !UseRtsp}"/>
+                    </Panel>
+                </Button.Content>
+            </Button>
+            <Button Command="{Binding RefreshCommand}" Content="Refresh" Width="120" IsVisible="{Binding !IsRtspActive}"/>
             <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Margin="10,0"/>
         </StackPanel>
 
-        <Image Source="{Binding CurrentImage}" Stretch="Uniform"/>
+        <Panel>
+            <!-- RTSP video via LibVLC -->
+            <vlc:VideoView MediaPlayer="{Binding MediaPlayer}" IsVisible="{Binding IsRtspActive}"/>
+
+            <!-- Fallback: image polling -->
+            <Image Source="{Binding CurrentImage}" Stretch="Uniform" IsVisible="{Binding !IsRtspActive}"/>
+        </Panel>
     </DockPanel>
 </UserControl>

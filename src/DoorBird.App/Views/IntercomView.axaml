@@ -1,0 +1,49 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DoorBird.App.ViewModels"
+             x:Class="DoorBird.App.Views.IntercomView"
+             x:DataType="vm:IntercomViewModel">
+    <StackPanel Margin="20" Spacing="20" MaxWidth="400" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Text="Intercom" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center"/>
+
+        <!-- Speaker (Receive) -->
+        <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="5" Padding="15">
+            <StackPanel Spacing="10">
+                <TextBlock Text="Speaker (Device Audio)" FontWeight="SemiBold"/>
+                <Button Command="{Binding ToggleListenCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
+                    <Button.Content>
+                        <Panel>
+                            <TextBlock Text="Start Listening" IsVisible="{Binding !IsListening}"/>
+                            <TextBlock Text="Stop Listening" IsVisible="{Binding IsListening}"/>
+                        </Panel>
+                    </Button.Content>
+                </Button>
+                <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Text="Level: " VerticalAlignment="Center"/>
+                    <ProgressBar Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding RxLevel}" Height="16"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- Microphone (Transmit) -->
+        <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="5" Padding="15">
+            <StackPanel Spacing="10">
+                <TextBlock Text="Microphone (Talk)" FontWeight="SemiBold"/>
+                <Button Command="{Binding ToggleTalkCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
+                    <Button.Content>
+                        <Panel>
+                            <TextBlock Text="Start Talking" IsVisible="{Binding !IsTalking}"/>
+                            <TextBlock Text="Stop Talking" IsVisible="{Binding IsTalking}"/>
+                        </Panel>
+                    </Button.Content>
+                </Button>
+                <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Text="Level: " VerticalAlignment="Center"/>
+                    <ProgressBar Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding TxLevel}" Height="16"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Text="{Binding Status}" HorizontalAlignment="Center" FontSize="14"/>
+    </StackPanel>
+</UserControl>
