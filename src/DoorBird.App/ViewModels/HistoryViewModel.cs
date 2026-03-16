@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reactive;
+using System.Reactive.Linq;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using DoorBird.App.Services;
@@ -46,9 +47,20 @@ public class HistoryViewModel : ViewModelBase {
     public HistoryViewModel(DeviceService deviceService) {
         _deviceService = deviceService;
 
-        PreviousCommand = ReactiveCommand.Create(() => { if (CurrentIndex > 1) CurrentIndex--; });
-        NextCommand = ReactiveCommand.Create(() => { CurrentIndex++; });
+        PreviousCommand = ReactiveCommand.CreateFromTask(async () => {
+            if (CurrentIndex > 1) {
+                CurrentIndex--;
+                await LoadImageAsync();
+            }
+        });
+        NextCommand = ReactiveCommand.CreateFromTask(async () => {
+            CurrentIndex++;
+            await LoadImageAsync();
+        });
         LoadCommand = ReactiveCommand.CreateFromTask(LoadImageAsync);
+
+        // Auto-load first image on open
+        Task.Run(async () => await LoadImageAsync());
     }
 
     private async Task LoadImageAsync() {
@@ -58,6 +70,7 @@ public class HistoryViewModel : ViewModelBase {
         }
 
         try {
+            Status = "Loading...";
             var uri = _deviceService.Device.HistoryImageUri(CurrentIndex);
             var request = new HttpRequestMessage(HttpMethod.Get, uri);
             var auth = Convert.ToBase64String(

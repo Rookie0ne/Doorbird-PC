@@ -22,5 +22,8 @@ out/
 .DS_Store
 Thumbs.db
 
+## Claude Code
+CLAUDE.md
+
 ## App settings (may contain credentials)
 appsettings.*.json
