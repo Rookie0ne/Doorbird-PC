@@ -121,7 +121,7 @@ On first run, go to **Settings** and configure:
 
 - **Device Host** — IP address or hostname of your DoorBird device
 - **Username / Password** — Credentials from the DoorBird mobile app
-- **Video Mode** — MJPEG Stream (smooth, default) or Snapshot Polling (1 fps)
+- **Video Mode** — RTSP Stream (H.264 via ffmpeg, lowest latency), MJPEG Stream (default, no extra deps), or Snapshot Polling (1 fps fallback)
 - **Audio Output / Input** — Select specific speaker and microphone, or leave as system default
 - **Notification Port** — Port for receiving push notifications (default: 8080)
 - **Recording Path** — Directory for saving captured images
