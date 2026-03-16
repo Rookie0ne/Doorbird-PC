@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using DoorBird.App.Services;
+using LibVLCSharp.Shared;
 using ReactiveUI;
 
 namespace DoorBird.App.ViewModels;
@@ -15,7 +16,11 @@ public class LiveViewModel : ViewModelBase, IDisposable {
     private readonly DeviceService _deviceService;
     private Bitmap? _currentImage;
     private string _status = "";
+    private bool _useRtsp = true;
+    private bool _isRtspActive;
     private CancellationTokenSource? _refreshCts;
+    private LibVLC? _libVlc;
+    private MediaPlayer? _mediaPlayer;
     private static readonly HttpClient HttpClient;
 
     static LiveViewModel() {
@@ -35,9 +40,28 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         set => this.RaiseAndSetIfChanged(ref _status, value);
     }
 
+    public bool UseRtsp {
+        get => _useRtsp;
+        set {
+            this.RaiseAndSetIfChanged(ref _useRtsp, value);
+            if (value) StartRtsp(); else StopRtsp();
+        }
+    }
+
+    public bool IsRtspActive {
+        get => _isRtspActive;
+        set => this.RaiseAndSetIfChanged(ref _isRtspActive, value);
+    }
+
+    public MediaPlayer? MediaPlayer {
+        get => _mediaPlayer;
+        private set => this.RaiseAndSetIfChanged(ref _mediaPlayer, value);
+    }
+
     public ReactiveCommand<Unit, Unit> OpenDoorCommand { get; }
     public ReactiveCommand<Unit, Unit> LightOnCommand { get; }
     public ReactiveCommand<Unit, Unit> RefreshCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleModeCommand { get; }
 
     public LiveViewModel(DeviceService deviceService) {
         _deviceService = deviceService;
@@ -45,18 +69,73 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         OpenDoorCommand = ReactiveCommand.CreateFromTask(OpenDoorAsync);
         LightOnCommand = ReactiveCommand.CreateFromTask(LightOnAsync);
         RefreshCommand = ReactiveCommand.CreateFromTask(RefreshImageAsync);
+        ToggleModeCommand = ReactiveCommand.Create(() => { UseRtsp = !UseRtsp; });
 
-        StartAutoRefresh();
+        if (_useRtsp)
+            StartRtsp();
+        else
+            StartImagePolling();
     }
 
-    private void StartAutoRefresh() {
+    private void StartRtsp() {
+        if (_deviceService.Device == null) {
+            Status = "Not connected";
+            StartImagePolling(); // Fallback
+            return;
+        }
+
+        StopImagePolling();
+
+        try {
+            _libVlc = new LibVLC("--no-audio"); // Video only in live view, audio is in Intercom
+            var player = new MediaPlayer(_libVlc);
+            var rtspUri = _deviceService.Device.RtspUri.ToString();
+            using var media = new Media(_libVlc, rtspUri, FromType.FromLocation);
+            media.AddOption(":network-caching=300");
+            media.AddOption(":rtsp-tcp");
+            player.Media = media;
+            player.Play();
+            MediaPlayer = player;
+            IsRtspActive = true;
+            Status = "RTSP Live Stream";
+        } catch (Exception ex) {
+            Status = $"RTSP failed: {ex.Message} - falling back to image polling";
+            IsRtspActive = false;
+            _useRtsp = false;
+            this.RaisePropertyChanged(nameof(UseRtsp));
+            StartImagePolling();
+        }
+    }
+
+    private void StopRtsp() {
+        IsRtspActive = false;
+        if (_mediaPlayer != null) {
+            _mediaPlayer.Stop();
+            _mediaPlayer.Dispose();
+            _mediaPlayer = null;
+            MediaPlayer = null;
+        }
+        _libVlc?.Dispose();
+        _libVlc = null;
+        StartImagePolling();
+    }
+
+    private void StartImagePolling() {
+        if (_refreshCts != null) return;
         _refreshCts = new CancellationTokenSource();
+        var ct = _refreshCts.Token;
         Task.Run(async () => {
-            while (!_refreshCts.Token.IsCancellationRequested) {
+            while (!ct.IsCancellationRequested) {
                 await RefreshImageAsync();
-                await Task.Delay(1000, _refreshCts.Token);
+                await Task.Delay(1000, ct);
             }
-        }, _refreshCts.Token);
+        }, ct);
+    }
+
+    private void StopImagePolling() {
+        _refreshCts?.Cancel();
+        _refreshCts?.Dispose();
+        _refreshCts = null;
     }
 
     private async Task RefreshImageAsync() {
@@ -99,7 +178,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
     }
 
     public void Dispose() {
-        _refreshCts?.Cancel();
-        _refreshCts?.Dispose();
+        StopImagePolling();
+        StopRtsp();
     }
 }

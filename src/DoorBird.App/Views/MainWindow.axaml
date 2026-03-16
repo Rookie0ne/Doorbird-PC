@@ -16,6 +16,7 @@
             <Button Command="{Binding ShowHomeCommand}" Content="Home"/>
             <Button Command="{Binding ShowLiveViewCommand}" Content="Live View"/>
             <Button Command="{Binding ShowHistoryCommand}" Content="History"/>
+            <Button Command="{Binding ShowIntercomCommand}" Content="Intercom"/>
             <Button Command="{Binding ShowSettingsCommand}" Content="Settings"/>
             <Rectangle Width="1" Fill="Gray" Margin="5,0"/>
             <Button Command="{Binding ConnectCommand}" Content="Connect"/>

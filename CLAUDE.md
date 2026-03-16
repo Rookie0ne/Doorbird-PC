@@ -32,15 +32,17 @@ Platform-independent HTTP client for the DoorBird `/bha-api/` REST API. Uses HTT
 ### DoorBird.App (Avalonia MVVM)
 Cross-platform desktop app using Avalonia UI + ReactiveUI. Convention-based `ViewLocator` maps `*ViewModel` → `*View`.
 
-- **ViewModels**: `MainWindowViewModel` (page navigation + connection), `LiveViewModel` (auto-refreshing camera feed + door/light controls), `HistoryViewModel` (image browser), `SettingsViewModel` (device config), `HomeViewModel`
-- **Services**: `DeviceService` (manages `DoorBirdUserDevice` lifecycle), `PushNotificationServer` (cross-platform `HttpListener` for push events)
+- **ViewModels**: `MainWindowViewModel` (page navigation + connection), `LiveViewModel` (RTSP video + image polling fallback + door/light controls), `IntercomViewModel` (bidirectional audio), `HistoryViewModel` (image browser), `SettingsViewModel` (device config), `HomeViewModel`
+- **Services**: `DeviceService` (manages `DoorBirdUserDevice` lifecycle), `AudioService` (PortAudio-based bidirectional G.711 mu-law audio over HTTP), `MuLawCodec` (G.711 mu-law encode/decode), `PushNotificationServer` (cross-platform `HttpListener` for push events)
 - **Models**: `AppSettings` (JSON-persisted to `~/.config/DoorBird/settings.json` on Linux, `%APPDATA%/DoorBird/` on Windows)
 
 ## Key Patterns
 
 - All DoorBird API calls go through `BhaHttp*` classes which add Basic auth headers and handle self-signed certs
-- ViewModels use `ReactiveCommand` for async operations; `LiveViewModel` runs a 1-second auto-refresh loop
-- The original project used WPF + .NET Framework 4.5; this port uses Avalonia 11 + .NET 8 with `HttpClient` replacing `WebClient`
+- ViewModels use `ReactiveCommand` for async operations
+- **Video**: LibVLCSharp provides RTSP streaming via `VideoView` control; falls back to 1-second image polling (`image.cgi`) if RTSP fails. Linux requires system `libvlc-dev`; Windows uses the `VideoLAN.LibVLC.Windows` NuGet package.
+- **Audio**: PortAudioSharp2 for cross-platform mic capture/playback. Audio is G.711 mu-law at 8 kHz mono — received via HTTP GET from `audio-receive.cgi`, transmitted via HTTP POST to `audio-transmit.cgi`. `MuLawCodec` handles encode/decode.
+- The original project used WPF + .NET Framework 4.5 + NAudio; this port uses Avalonia 11 + .NET 8 + LibVLCSharp + PortAudio
 
 ## GitHub
 
