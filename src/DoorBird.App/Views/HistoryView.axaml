@@ -1,0 +1,17 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DoorBird.App.ViewModels"
+             x:Class="DoorBird.App.Views.HistoryView"
+             x:DataType="vm:HistoryViewModel">
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="10" Margin="0,10" HorizontalAlignment="Center">
+            <Button Command="{Binding PreviousCommand}" Content="Previous"/>
+            <TextBlock Text="{Binding CurrentIndex, StringFormat='Image #{0}'}" VerticalAlignment="Center"/>
+            <Button Command="{Binding NextCommand}" Content="Next"/>
+            <Button Command="{Binding LoadCommand}" Content="Load"/>
+            <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Margin="10,0"/>
+        </StackPanel>
+
+        <Image Source="{Binding CurrentImage}" Stretch="Uniform"/>
+    </DockPanel>
+</UserControl>
