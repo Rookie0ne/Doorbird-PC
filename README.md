@@ -8,6 +8,7 @@ Based on the original [DoorBird-Windows](https://gitlab.com/klikini/DoorBird-Win
 
 - **Live View** — Three video modes: RTSP stream (H.264 via ffmpeg), MJPEG stream, or snapshot polling. Maximizable view with sidebar controls.
 - **Door & Light Control** — Open door relay and activate IR light directly from the live view
+- **Screenshot & Recording** — Save a snapshot as PNG or record video+audio to MP4 (via ffmpeg) directly from the live view
 - **Intercom** — Full-duplex two-way audio (G.711 mu-law) with speaker and mic toggle buttons available in both the Intercom page and the Live View toolbar
 - **History Browser** — Browse historical doorbell/motion images with previous/next navigation
 - **Push Notifications** — Built-in HTTP listener receives doorbell, motion, and door-open events from the device
