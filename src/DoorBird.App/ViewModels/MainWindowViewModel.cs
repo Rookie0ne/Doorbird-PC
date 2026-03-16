@@ -1,17 +1,31 @@
 using System;
+using System.Globalization;
 using System.Reactive;
 using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Data.Converters;
 using DoorBird.App.Services;
 using ReactiveUI;
 
 namespace DoorBird.App.ViewModels;
 
+public class BoolToMarginConverter : IValueConverter {
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) {
+        return value is true ? new Thickness(10) : new Thickness(0);
+    }
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) {
+        throw new NotSupportedException();
+    }
+}
+
 public class MainWindowViewModel : ViewModelBase {
+    public static readonly BoolToMarginConverter ToolbarMarginConverter = new();
     private readonly DeviceService _deviceService;
     private ViewModelBase _currentPage;
     private string _connectionStatus = "Disconnected";
     private bool _isConnected;
     private string _connectButtonText = "Connect";
+    private bool _isToolbarVisible = true;
 
     public ViewModelBase CurrentPage {
         get => _currentPage;
@@ -36,12 +50,18 @@ public class MainWindowViewModel : ViewModelBase {
         set => this.RaiseAndSetIfChanged(ref _connectButtonText, value);
     }
 
+    public bool IsToolbarVisible {
+        get => _isToolbarVisible;
+        set => this.RaiseAndSetIfChanged(ref _isToolbarVisible, value);
+    }
+
     public ReactiveCommand<Unit, Unit> ConnectToggleCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowHomeCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowLiveViewCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowHistoryCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowIntercomCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowSettingsCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowInfoCommand { get; }
 
     public DeviceService DeviceService => _deviceService;
 
@@ -51,10 +71,11 @@ public class MainWindowViewModel : ViewModelBase {
 
         ConnectToggleCommand = ReactiveCommand.CreateFromTask(ConnectToggleAsync);
         ShowHomeCommand = ReactiveCommand.Create(() => { CurrentPage = new HomeViewModel(); });
-        ShowLiveViewCommand = ReactiveCommand.Create(() => { CurrentPage = new LiveViewModel(_deviceService); });
+        ShowLiveViewCommand = ReactiveCommand.Create(() => { CurrentPage = CreateLiveViewModel(); });
         ShowHistoryCommand = ReactiveCommand.Create(() => { CurrentPage = new HistoryViewModel(_deviceService); });
         ShowIntercomCommand = ReactiveCommand.Create(() => { CurrentPage = new IntercomViewModel(_deviceService); });
         ShowSettingsCommand = ReactiveCommand.Create(() => { CurrentPage = new SettingsViewModel(_deviceService); });
+        ShowInfoCommand = ReactiveCommand.Create(() => { CurrentPage = new InfoViewModel(_deviceService); });
 
         if (_deviceService.Settings.AutoConnect)
             Task.Run(AutoConnectAsync);
@@ -66,7 +87,14 @@ public class MainWindowViewModel : ViewModelBase {
         IsConnected = success;
         ConnectionStatus = success ? "Connected" : "Connection failed";
         if (success)
-            CurrentPage = new LiveViewModel(_deviceService);
+            CurrentPage = CreateLiveViewModel();
+    }
+
+    private LiveViewModel CreateLiveViewModel() {
+        var vm = new LiveViewModel(_deviceService);
+        vm.OnMaximizeChanged = maximized => IsToolbarVisible = !maximized;
+        IsToolbarVisible = !vm.IsMaximized;
+        return vm;
     }
 
     private async Task ConnectToggleAsync() {

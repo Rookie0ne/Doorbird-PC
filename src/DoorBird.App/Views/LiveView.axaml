@@ -4,7 +4,10 @@
              x:Class="DoorBird.App.Views.LiveView"
              x:DataType="vm:LiveViewModel">
     <DockPanel>
-        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="10" Margin="0,10" HorizontalAlignment="Center">
+        <!-- Normal mode: bottom controls -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="10"
+                    Margin="0,10" HorizontalAlignment="Center"
+                    IsVisible="{Binding !IsMaximized}">
             <Button Command="{Binding ToggleListenCommand}" Width="44" Height="36"
                     ToolTip.Tip="Toggle Speaker"
                     Background="{Binding IsListening, Converter={x:Static vm:LiveViewModel.BoolToBrush}}">
@@ -26,8 +29,46 @@
             <Button Command="{Binding LightOnCommand}" Content="Light On" Width="100"/>
             <Button Command="{Binding RefreshCommand}" Content="Refresh" Width="100"/>
             <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Margin="10,0"/>
+            <Rectangle Width="1" Fill="Gray" Margin="2,4"/>
+            <Button Command="{Binding ToggleMaximizeCommand}" Width="36" Height="36"
+                    ToolTip.Tip="Maximize" HorizontalContentAlignment="Center">
+                <TextBlock Text="&#x26F6;" FontSize="16"/>
+            </Button>
         </StackPanel>
 
+        <!-- Maximized mode: right-side vertical controls (30% larger) -->
+        <StackPanel DockPanel.Dock="Right" Spacing="10" Margin="10,0,0,0"
+                    VerticalAlignment="Center"
+                    IsVisible="{Binding IsMaximized}">
+            <Button Command="{Binding ToggleListenCommand}" Width="57" Height="47"
+                    ToolTip.Tip="Toggle Speaker"
+                    Background="{Binding IsListening, Converter={x:Static vm:LiveViewModel.BoolToBrush}}">
+                <Panel>
+                    <TextBlock Text="&#x1F508;" FontSize="23" IsVisible="{Binding !IsListening}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="&#x1F50A;" FontSize="23" IsVisible="{Binding IsListening}" HorizontalAlignment="Center"/>
+                </Panel>
+            </Button>
+            <Button Command="{Binding ToggleTalkCommand}" Width="57" Height="47"
+                    ToolTip.Tip="Toggle Microphone"
+                    Background="{Binding IsTalking, Converter={x:Static vm:LiveViewModel.BoolToBrush}}">
+                <Panel>
+                    <TextBlock Text="&#x1F399;" FontSize="23" IsVisible="{Binding !IsTalking}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="&#x1F3A4;" FontSize="23" IsVisible="{Binding IsTalking}" HorizontalAlignment="Center"/>
+                </Panel>
+            </Button>
+            <Separator Margin="0,3"/>
+            <Button Command="{Binding OpenDoorCommand}" Content="Door" Width="57" Height="47"
+                    ToolTip.Tip="Open Door" FontSize="14" HorizontalContentAlignment="Center"/>
+            <Button Command="{Binding LightOnCommand}" Content="Light" Width="57" Height="47"
+                    ToolTip.Tip="Light On" FontSize="14" HorizontalContentAlignment="Center"/>
+            <Separator Margin="0,3"/>
+            <Button Command="{Binding ToggleMaximizeCommand}" Width="57" Height="47"
+                    ToolTip.Tip="Minimize" HorizontalContentAlignment="Center">
+                <TextBlock Text="&#x2716;" FontSize="18"/>
+            </Button>
+        </StackPanel>
+
+        <!-- Video -->
         <Image Source="{Binding CurrentImage}" Stretch="Uniform"/>
     </DockPanel>
 </UserControl>

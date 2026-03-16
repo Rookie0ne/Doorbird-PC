@@ -15,6 +15,7 @@ public class SettingsViewModel : ViewModelBase {
     private decimal _notificationPort;
     private string _recordingPath;
     private bool _autoConnect;
+    private bool _liveViewMaximized;
     private string _selectedLiveViewMode;
     private string? _selectedOutputDevice;
     private string? _selectedInputDevice;
@@ -50,11 +51,16 @@ public class SettingsViewModel : ViewModelBase {
         set => this.RaiseAndSetIfChanged(ref _autoConnect, value);
     }
 
-    public List<string> LiveViewModes { get; } = new() { "MJPEG Stream", "Snapshot Polling" };
+    public List<string> LiveViewModes { get; } = new() { "RTSP Stream (requires ffmpeg)", "MJPEG Stream", "Snapshot Polling" };
 
     public string SelectedLiveViewMode {
         get => _selectedLiveViewMode;
         set => this.RaiseAndSetIfChanged(ref _selectedLiveViewMode, value);
+    }
+
+    public bool LiveViewMaximized {
+        get => _liveViewMaximized;
+        set => this.RaiseAndSetIfChanged(ref _liveViewMaximized, value);
     }
 
     public List<string> OutputDevices { get; }
@@ -86,7 +92,12 @@ public class SettingsViewModel : ViewModelBase {
         _notificationPort = (decimal)s.NotificationPort;
         _recordingPath = s.RecordingPath;
         _autoConnect = s.AutoConnect;
-        _selectedLiveViewMode = s.LiveViewMode == "Snapshot" ? "Snapshot Polling" : "MJPEG Stream";
+        _liveViewMaximized = s.LiveViewMaximized;
+        _selectedLiveViewMode = s.LiveViewMode switch {
+            "Rtsp" => "RTSP Stream (requires ffmpeg)",
+            "Snapshot" => "Snapshot Polling",
+            _ => "MJPEG Stream"
+        };
 
         // Enumerate audio devices
         const string defaultLabel = "(System Default)";
@@ -119,7 +130,12 @@ public class SettingsViewModel : ViewModelBase {
         s.NotificationPort = (int)NotificationPort;
         s.RecordingPath = RecordingPath;
         s.AutoConnect = AutoConnect;
-        s.LiveViewMode = SelectedLiveViewMode == "Snapshot Polling" ? "Snapshot" : "Mjpeg";
+        s.LiveViewMaximized = LiveViewMaximized;
+        s.LiveViewMode = SelectedLiveViewMode switch {
+            "RTSP Stream (requires ffmpeg)" => "Rtsp",
+            "Snapshot Polling" => "Snapshot",
+            _ => "Mjpeg"
+        };
         s.AudioOutputDevice = SelectedOutputDevice == defaultLabel ? null : SelectedOutputDevice;
         s.AudioInputDevice = SelectedInputDevice == defaultLabel ? null : SelectedInputDevice;
         s.Save();
