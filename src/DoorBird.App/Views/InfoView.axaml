@@ -1,0 +1,10 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DoorBird.App.ViewModels"
+             x:Class="DoorBird.App.Views.InfoView"
+             x:DataType="vm:InfoViewModel">
+    <ScrollViewer Margin="10">
+        <SelectableTextBlock Text="{Binding Info}" FontFamily="monospace" FontSize="13"
+                             TextWrapping="Wrap"/>
+    </ScrollViewer>
+</UserControl>

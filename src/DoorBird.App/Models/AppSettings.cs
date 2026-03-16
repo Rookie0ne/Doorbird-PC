@@ -14,7 +14,9 @@ public class AppSettings {
     public bool AutoRecord { get; set; } = false;
     public bool AutoConnect { get; set; } = false;
 
-    /// <summary>Live view mode: "Mjpeg" or "Snapshot". Default is MJPEG.</summary>
+    public bool LiveViewMaximized { get; set; } = false;
+
+    /// <summary>Live view mode: "Rtsp", "Mjpeg", or "Snapshot". Default is MJPEG.</summary>
     public string LiveViewMode { get; set; } = "Mjpeg";
 
     /// <summary>Saved audio output device name. Null/empty = system default.</summary>

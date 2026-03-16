@@ -12,20 +12,27 @@
 
     <DockPanel>
         <!-- Top toolbar -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="5" Margin="10">
-            <Button Command="{Binding ShowHomeCommand}" Content="Home"/>
-            <Button Command="{Binding ShowLiveViewCommand}" Content="Live View"/>
-            <Button Command="{Binding ShowHistoryCommand}" Content="History"/>
-            <Button Command="{Binding ShowIntercomCommand}" Content="Intercom"/>
-            <Button Command="{Binding ShowSettingsCommand}" Content="Settings"/>
-            <Rectangle Width="1" Fill="Gray" Margin="5,0"/>
-            <Button Command="{Binding ConnectToggleCommand}" Content="{Binding ConnectButtonText}"/>
-            <TextBlock Text="{Binding ConnectionStatus}" VerticalAlignment="Center" Margin="10,0"/>
-        </StackPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="10" LastChildFill="False"
+                   IsVisible="{Binding IsToolbarVisible}">
+            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="5">
+                <Button Command="{Binding ShowHomeCommand}" Content="Home"/>
+                <Button Command="{Binding ShowLiveViewCommand}" Content="Live View"/>
+                <Button Command="{Binding ShowHistoryCommand}" Content="History"/>
+                <Button Command="{Binding ShowIntercomCommand}" Content="Intercom"/>
+                <Button Command="{Binding ShowSettingsCommand}" Content="Settings"/>
+                <Rectangle Width="1" Fill="Gray" Margin="5,0"/>
+                <Button Command="{Binding ConnectToggleCommand}" Content="{Binding ConnectButtonText}"/>
+                <TextBlock Text="{Binding ConnectionStatus}" VerticalAlignment="Center" Margin="10,0"/>
+            </StackPanel>
+            <Button DockPanel.Dock="Right" Command="{Binding ShowInfoCommand}"
+                    Content="&#x2139;" ToolTip.Tip="Information"
+                    FontSize="16" Width="36" HorizontalContentAlignment="Center"/>
+        </DockPanel>
 
-        <Separator DockPanel.Dock="Top"/>
+        <Separator DockPanel.Dock="Top" IsVisible="{Binding IsToolbarVisible}"/>
 
         <!-- Page content -->
-        <ContentControl Content="{Binding CurrentPage}" Margin="10"/>
+        <ContentControl Content="{Binding CurrentPage}"
+                        Margin="{Binding IsToolbarVisible, Converter={x:Static vm:MainWindowViewModel.ToolbarMarginConverter}}"/>
     </DockPanel>
 </Window>

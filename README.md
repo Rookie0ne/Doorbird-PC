@@ -26,19 +26,26 @@ curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0
 export DOTNET_ROOT="$HOME/.dotnet"
 export PATH="$DOTNET_ROOT:$PATH"
 
-# PortAudio (required for intercom audio, always needed)
+# PortAudio (required for intercom audio)
 sudo apt install libportaudio2    # Debian/Ubuntu
 # or
 sudo dnf install portaudio        # Fedora
 # or
 sudo pacman -S portaudio           # Arch
+
+# FFmpeg (optional — required only for RTSP video mode)
+sudo apt install ffmpeg            # Debian/Ubuntu
+# or
+sudo dnf install ffmpeg            # Fedora
+# or
+sudo pacman -S ffmpeg              # Arch
 ```
 
 ### Linux (running published binary)
 
 ```bash
-# Only PortAudio is needed — no .NET SDK required
-sudo apt install libportaudio2    # Debian/Ubuntu
+sudo apt install libportaudio2     # Required — intercom audio
+sudo apt install ffmpeg            # Optional — only for RTSP video mode
 ```
 
 ### macOS (building from source)
@@ -47,21 +54,25 @@ sudo apt install libportaudio2    # Debian/Ubuntu
 # .NET 8 SDK
 brew install dotnet-sdk
 
-# PortAudio (required for intercom audio, always needed)
+# PortAudio (required for intercom audio)
 brew install portaudio
+
+# FFmpeg (optional — required only for RTSP video mode)
+brew install ffmpeg
 ```
 
 ### macOS (running published binary)
 
 ```bash
-# Only PortAudio is needed — no .NET SDK required
-brew install portaudio
+brew install portaudio             # Required — intercom audio
+brew install ffmpeg                # Optional — only for RTSP video mode
 ```
 
 ### Windows
 
 - For building from source: install the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- For running a published binary: no prerequisites — all dependencies are bundled
+- For running a published binary: no prerequisites for MJPEG/Snapshot modes
+- **Optional:** Install [FFmpeg](https://www.gyan.dev/ffmpeg/builds/) and add it to PATH for RTSP video mode
 
 ## Build & Run
 
@@ -102,7 +113,7 @@ publish\win-x64\DoorBird.App.exe
 ./publish/osx-arm64/DoorBird.App
 ```
 
-**Note:** On Linux and macOS, `libportaudio` is required as a system dependency for intercom audio. The app will show an error on startup if it is missing. On Windows, all native dependencies are bundled.
+**Note:** On Linux and macOS, `libportaudio` is required for intercom audio (the app will show an error on startup if missing). FFmpeg is optional and only needed if you select RTSP as the video mode in Settings. On Windows, PortAudio is bundled; FFmpeg must be installed separately for RTSP mode.
 
 ## Configuration
 

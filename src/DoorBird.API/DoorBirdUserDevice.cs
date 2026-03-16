@@ -45,10 +45,17 @@ public class DoorBirdUserDevice : DoorBirdDevice {
         var http = new BhaHttpJson(UriTools);
         var result = await http.Get("info.cgi");
         var bha = result.Data;
+
+        // Device info is nested: BHA -> VERSION -> [0] -> {fields}
+        var version = bha["VERSION"] as JArray;
+        var device = version?.First as JObject ?? bha;
+
         return new DeviceInfo {
-            FirmwareVersion = bha["FIRMWARE"]?.ToString() ?? "",
-            BuildNumber = bha["BUILD_NUMBER"]?.ToString() ?? "",
-            WifiMacAddress = bha["WIFI_MAC_ADDR"]?.ToString() ?? ""
+            FirmwareVersion = device["FIRMWARE"]?.ToString() ?? "",
+            BuildNumber = device["BUILD_NUMBER"]?.ToString() ?? "",
+            WifiMacAddress = device["WIFI_MAC_ADDR"]?.ToString() ?? "",
+            DeviceType = device["DEVICE-TYPE"]?.ToString() ?? "",
+            Relays = device["RELAYS"]?.ToObject<string[]>() ?? Array.Empty<string>()
         };
     }
 

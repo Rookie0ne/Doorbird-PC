@@ -42,6 +42,8 @@
                           HorizontalAlignment="Stretch"/>
             </StackPanel>
 
+            <CheckBox IsChecked="{Binding LiveViewMaximized}" Content="Launch Live View maximized"/>
+
             <Separator Margin="0,5"/>
             <TextBlock Text="Audio Devices" FontSize="20" FontWeight="Bold"/>
 
