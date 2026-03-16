@@ -19,7 +19,7 @@
             <Button Command="{Binding ShowIntercomCommand}" Content="Intercom"/>
             <Button Command="{Binding ShowSettingsCommand}" Content="Settings"/>
             <Rectangle Width="1" Fill="Gray" Margin="5,0"/>
-            <Button Command="{Binding ConnectCommand}" Content="Connect"/>
+            <Button Command="{Binding ConnectToggleCommand}" Content="{Binding ConnectButtonText}"/>
             <TextBlock Text="{Binding ConnectionStatus}" VerticalAlignment="Center" Margin="10,0"/>
         </StackPanel>
 

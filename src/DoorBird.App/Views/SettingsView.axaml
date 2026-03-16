@@ -32,6 +32,37 @@
                 <TextBox Text="{Binding RecordingPath}"/>
             </StackPanel>
 
+            <Separator Margin="0,5"/>
+            <TextBlock Text="Live View" FontSize="20" FontWeight="Bold"/>
+
+            <StackPanel Spacing="5">
+                <TextBlock Text="Video Mode"/>
+                <ComboBox ItemsSource="{Binding LiveViewModes}"
+                          SelectedItem="{Binding SelectedLiveViewMode}"
+                          HorizontalAlignment="Stretch"/>
+            </StackPanel>
+
+            <Separator Margin="0,5"/>
+            <TextBlock Text="Audio Devices" FontSize="20" FontWeight="Bold"/>
+
+            <StackPanel Spacing="5">
+                <TextBlock Text="Audio Output (Speaker)"/>
+                <ComboBox ItemsSource="{Binding OutputDevices}"
+                          SelectedItem="{Binding SelectedOutputDevice}"
+                          HorizontalAlignment="Stretch"/>
+            </StackPanel>
+
+            <StackPanel Spacing="5">
+                <TextBlock Text="Audio Input (Microphone)"/>
+                <ComboBox ItemsSource="{Binding InputDevices}"
+                          SelectedItem="{Binding SelectedInputDevice}"
+                          HorizontalAlignment="Stretch"/>
+            </StackPanel>
+
+            <Separator Margin="0,5"/>
+
+            <CheckBox IsChecked="{Binding AutoConnect}" Content="Auto-connect and show Live View on startup"/>
+
             <Button Command="{Binding SaveCommand}" Content="Save Settings" HorizontalAlignment="Left"/>
             <TextBlock Text="{Binding Status}" Foreground="Green"/>
         </StackPanel>

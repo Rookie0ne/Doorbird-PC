@@ -47,7 +47,10 @@ public class IntercomViewModel : ViewModelBase, IDisposable {
 
     public IntercomViewModel(DeviceService deviceService) {
         _deviceService = deviceService;
-        _audioService = new AudioService();
+        _audioService = new AudioService {
+            OutputDeviceName = deviceService.Settings.AudioOutputDevice,
+            InputDeviceName = deviceService.Settings.AudioInputDevice
+        };
 
         ToggleListenCommand = ReactiveCommand.Create(ToggleListen);
         ToggleTalkCommand = ReactiveCommand.Create(ToggleTalk);

@@ -1,31 +1,33 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:DoorBird.App.ViewModels"
-             xmlns:vlc="using:LibVLCSharp.Avalonia"
              x:Class="DoorBird.App.Views.LiveView"
              x:DataType="vm:LiveViewModel">
     <DockPanel>
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="10" Margin="0,10" HorizontalAlignment="Center">
-            <Button Command="{Binding OpenDoorCommand}" Content="Open Door" Width="120"/>
-            <Button Command="{Binding LightOnCommand}" Content="Light On" Width="120"/>
-            <Button Command="{Binding ToggleModeCommand}" Width="120">
-                <Button.Content>
-                    <Panel>
-                        <TextBlock Text="Use Snapshots" IsVisible="{Binding UseRtsp}"/>
-                        <TextBlock Text="Use RTSP" IsVisible="{Binding !UseRtsp}"/>
-                    </Panel>
-                </Button.Content>
+            <Button Command="{Binding ToggleListenCommand}" Width="44" Height="36"
+                    ToolTip.Tip="Toggle Speaker"
+                    Background="{Binding IsListening, Converter={x:Static vm:LiveViewModel.BoolToBrush}}">
+                <Panel>
+                    <TextBlock Text="&#x1F508;" FontSize="18" IsVisible="{Binding !IsListening}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="&#x1F50A;" FontSize="18" IsVisible="{Binding IsListening}" HorizontalAlignment="Center"/>
+                </Panel>
             </Button>
-            <Button Command="{Binding RefreshCommand}" Content="Refresh" Width="120" IsVisible="{Binding !IsRtspActive}"/>
+            <Button Command="{Binding ToggleTalkCommand}" Width="44" Height="36"
+                    ToolTip.Tip="Toggle Microphone"
+                    Background="{Binding IsTalking, Converter={x:Static vm:LiveViewModel.BoolToBrush}}">
+                <Panel>
+                    <TextBlock Text="&#x1F399;" FontSize="18" IsVisible="{Binding !IsTalking}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="&#x1F3A4;" FontSize="18" IsVisible="{Binding IsTalking}" HorizontalAlignment="Center"/>
+                </Panel>
+            </Button>
+            <Rectangle Width="1" Fill="Gray" Margin="2,4"/>
+            <Button Command="{Binding OpenDoorCommand}" Content="Open Door" Width="100"/>
+            <Button Command="{Binding LightOnCommand}" Content="Light On" Width="100"/>
+            <Button Command="{Binding RefreshCommand}" Content="Refresh" Width="100"/>
             <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Margin="10,0"/>
         </StackPanel>
 
-        <Panel>
-            <!-- RTSP video via LibVLC -->
-            <vlc:VideoView MediaPlayer="{Binding MediaPlayer}" IsVisible="{Binding IsRtspActive}"/>
-
-            <!-- Fallback: image polling -->
-            <Image Source="{Binding CurrentImage}" Stretch="Uniform" IsVisible="{Binding !IsRtspActive}"/>
-        </Panel>
+        <Image Source="{Binding CurrentImage}" Stretch="Uniform"/>
     </DockPanel>
 </UserControl>

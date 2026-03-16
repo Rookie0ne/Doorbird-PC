@@ -1,12 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using PortAudioSharp;
 
 namespace DoorBird.App.Services;
+
+public record AudioDeviceInfo(int Index, string Name, bool IsInput, bool IsOutput);
 
 /// <summary>
 /// Cross-platform audio service for DoorBird intercom.
@@ -39,12 +43,18 @@ public class AudioService : IDisposable {
     private int _captureAvailable;
     private readonly object _captureLock = new();
 
-    private bool _initialized;
+    private static bool _paInitialized;
 
     public float RxLevel { get; private set; }
     public float TxLevel { get; private set; }
     public bool IsReceiving => _rxTask is { IsCompleted: false };
     public bool IsTransmitting => _txTask is { IsCompleted: false };
+
+    /// <summary>Configured output device name. Null = system default.</summary>
+    public string? OutputDeviceName { get; set; }
+
+    /// <summary>Configured input device name. Null = system default.</summary>
+    public string? InputDeviceName { get; set; }
 
     static AudioService() {
         var handler = new HttpClientHandler {
@@ -53,22 +63,109 @@ public class AudioService : IDisposable {
         HttpClient = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
-    private void EnsureInitialized() {
-        if (_initialized) return;
-        PortAudio.Initialize();
-        _initialized = true;
+    // Suppress noisy ALSA/JACK warnings on Linux during PortAudio init
+    private delegate void AlsaErrorHandler(string file, int line, string function, int err, string fmt);
+    [DllImport("libasound.so.2", EntryPoint = "snd_lib_error_set_handler", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int AlsaSetErrorHandler(AlsaErrorHandler? handler);
+    private static readonly AlsaErrorHandler SilentHandler = (_, _, _, _, _) => { };
+
+    // Redirect native stderr to suppress JACK warnings (no error handler API)
+    [DllImport("libc", EntryPoint = "dup", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int Dup(int fd);
+    [DllImport("libc", EntryPoint = "dup2", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int Dup2(int oldfd, int newfd);
+    [DllImport("libc", EntryPoint = "open", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int Open([MarshalAs(UnmanagedType.LPStr)] string path, int flags);
+    [DllImport("libc", EntryPoint = "close", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int Close(int fd);
+
+    private static void EnsureInitialized() {
+        if (_paInitialized) return;
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) {
+            try { AlsaSetErrorHandler(SilentHandler); } catch { }
+
+            // Temporarily redirect stderr to /dev/null to silence JACK warnings
+            int savedStderr = -1;
+            int devNull = -1;
+            try {
+                savedStderr = Dup(2);
+                devNull = Open("/dev/null", 1 /* O_WRONLY */);
+                if (devNull >= 0) Dup2(devNull, 2);
+            } catch { }
+
+            try {
+                PortAudio.Initialize();
+            } finally {
+                // Restore stderr
+                try {
+                    if (savedStderr >= 0) { Dup2(savedStderr, 2); Close(savedStderr); }
+                    if (devNull >= 0) Close(devNull);
+                } catch { }
+            }
+        } else {
+            PortAudio.Initialize();
+        }
+        _paInitialized = true;
+    }
+
+    /// <summary>
+    /// Lists all available audio devices. Safe to call multiple times.
+    /// </summary>
+    public static List<AudioDeviceInfo> ListDevices() {
+        EnsureInitialized();
+        var devices = new List<AudioDeviceInfo>();
+        int count = PortAudio.DeviceCount;
+        for (int i = 0; i < count; i++) {
+            var info = PortAudio.GetDeviceInfo(i);
+            if (info.maxInputChannels > 0 || info.maxOutputChannels > 0) {
+                devices.Add(new AudioDeviceInfo(
+                    i,
+                    info.name,
+                    info.maxInputChannels > 0,
+                    info.maxOutputChannels > 0));
+            }
+        }
+        return devices;
+    }
+
+    /// <summary>
+    /// Resolves a saved device name to a PortAudio device index.
+    /// Falls back to system default if the name is null/empty or not found.
+    /// </summary>
+    private static int ResolveOutputDevice(string? name) {
+        if (string.IsNullOrEmpty(name)) return PortAudio.DefaultOutputDevice;
+        int count = PortAudio.DeviceCount;
+        for (int i = 0; i < count; i++) {
+            var info = PortAudio.GetDeviceInfo(i);
+            if (info.maxOutputChannels > 0 && info.name == name)
+                return i;
+        }
+        return PortAudio.DefaultOutputDevice;
+    }
+
+    private static int ResolveInputDevice(string? name) {
+        if (string.IsNullOrEmpty(name)) return PortAudio.DefaultInputDevice;
+        int count = PortAudio.DeviceCount;
+        for (int i = 0; i < count; i++) {
+            var info = PortAudio.GetDeviceInfo(i);
+            if (info.maxInputChannels > 0 && info.name == name)
+                return i;
+        }
+        return PortAudio.DefaultInputDevice;
     }
 
     public void StartReceiving(Uri audioRxUri, string username, string password) {
         EnsureInitialized();
         _rxCts = new CancellationTokenSource();
 
-        // Open playback stream
+        int deviceIndex = ResolveOutputDevice(OutputDeviceName);
+        var deviceInfo = PortAudio.GetDeviceInfo(deviceIndex);
+
         var outputParams = new StreamParameters {
-            device = PortAudio.DefaultOutputDevice,
+            device = deviceIndex,
             channelCount = 1,
             sampleFormat = SampleFormat.Int16,
-            suggestedLatency = PortAudio.GetDeviceInfo(PortAudio.DefaultOutputDevice).defaultLowOutputLatency
+            suggestedLatency = deviceInfo.defaultLowOutputLatency
         };
 
         _playbackStream = new PortAudioSharp.Stream(
@@ -81,8 +178,6 @@ public class AudioService : IDisposable {
             userData: IntPtr.Zero);
 
         _playbackStream.Start();
-
-        // Start HTTP receive loop
         _rxTask = Task.Run(() => ReceiveLoop(audioRxUri, username, password, _rxCts.Token));
     }
 
@@ -90,12 +185,14 @@ public class AudioService : IDisposable {
         EnsureInitialized();
         _txCts = new CancellationTokenSource();
 
-        // Open capture stream
+        int deviceIndex = ResolveInputDevice(InputDeviceName);
+        var deviceInfo = PortAudio.GetDeviceInfo(deviceIndex);
+
         var inputParams = new StreamParameters {
-            device = PortAudio.DefaultInputDevice,
+            device = deviceIndex,
             channelCount = 1,
             sampleFormat = SampleFormat.Int16,
-            suggestedLatency = PortAudio.GetDeviceInfo(PortAudio.DefaultInputDevice).defaultLowInputLatency
+            suggestedLatency = deviceInfo.defaultLowInputLatency
         };
 
         _captureStream = new PortAudioSharp.Stream(
@@ -108,8 +205,6 @@ public class AudioService : IDisposable {
             userData: IntPtr.Zero);
 
         _captureStream.Start();
-
-        // Start HTTP transmit loop
         _txTask = Task.Run(() => TransmitLoop(audioTxUri, username, password, _txCts.Token));
     }
 
@@ -127,7 +222,7 @@ public class AudioService : IDisposable {
                         _playbackReadPos = (_playbackReadPos + 1) % _playbackBuffer.Length;
                         _playbackAvailable--;
                     } else {
-                        outPtr[i] = 0; // Silence
+                        outPtr[i] = 0;
                     }
                 }
             }
@@ -143,7 +238,6 @@ public class AudioService : IDisposable {
         unsafe {
             var inPtr = (byte*)input;
 
-            // Compute RMS level
             float sum = 0;
             for (int i = 0; i < (int)frameCount; i++) {
                 short sample = (short)(inPtr[i * 2] | (inPtr[i * 2 + 1] << 8));
@@ -176,16 +270,14 @@ public class AudioService : IDisposable {
                 response.EnsureSuccessStatusCode();
 
                 using var stream = await response.Content.ReadAsStreamAsync(ct);
-                var buffer = new byte[800]; // 100ms of mu-law
+                var buffer = new byte[800];
 
                 while (!ct.IsCancellationRequested) {
                     int read = await stream.ReadAsync(buffer, 0, buffer.Length, ct);
                     if (read == 0) break;
 
-                    // Decode mu-law to PCM16
                     var pcm = MuLawCodec.DecodeToPcm(buffer, 0, read);
 
-                    // Compute RMS level
                     float sum = 0;
                     for (int i = 0; i < read; i++) {
                         short sample = MuLawCodec.Decode(buffer[i]);
@@ -193,7 +285,6 @@ public class AudioService : IDisposable {
                     }
                     RxLevel = (float)Math.Sqrt(sum / read) / 32768f;
 
-                    // Write to playback buffer
                     lock (_playbackLock) {
                         for (int i = 0; i < pcm.Length; i++) {
                             _playbackBuffer[_playbackWritePos] = pcm[i];
@@ -206,7 +297,6 @@ public class AudioService : IDisposable {
             } catch (OperationCanceledException) {
                 break;
             } catch {
-                // Auto-reconnect after brief delay
                 if (!ct.IsCancellationRequested)
                     await Task.Delay(1000, ct);
             }
@@ -220,7 +310,6 @@ public class AudioService : IDisposable {
                 var auth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
                 request.Headers.Authorization = new AuthenticationHeaderValue("Basic", auth);
 
-                // Use a streaming content body
                 request.Content = new PushStreamContent(async (outputStream, _, _) => {
                     var pcmChunk = new byte[FramesPerBuffer * 2];
                     while (!ct.IsCancellationRequested) {
@@ -281,10 +370,6 @@ public class AudioService : IDisposable {
     public void Dispose() {
         StopReceiving();
         StopTransmitting();
-        if (_initialized) {
-            PortAudio.Terminate();
-            _initialized = false;
-        }
     }
 }
 

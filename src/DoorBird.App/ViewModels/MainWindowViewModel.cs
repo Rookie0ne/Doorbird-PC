@@ -11,6 +11,7 @@ public class MainWindowViewModel : ViewModelBase {
     private ViewModelBase _currentPage;
     private string _connectionStatus = "Disconnected";
     private bool _isConnected;
+    private string _connectButtonText = "Connect";
 
     public ViewModelBase CurrentPage {
         get => _currentPage;
@@ -24,10 +25,18 @@ public class MainWindowViewModel : ViewModelBase {
 
     public bool IsConnected {
         get => _isConnected;
-        set => this.RaiseAndSetIfChanged(ref _isConnected, value);
+        set {
+            this.RaiseAndSetIfChanged(ref _isConnected, value);
+            ConnectButtonText = value ? "Disconnect" : "Connect";
+        }
     }
 
-    public ReactiveCommand<Unit, Unit> ConnectCommand { get; }
+    public string ConnectButtonText {
+        get => _connectButtonText;
+        set => this.RaiseAndSetIfChanged(ref _connectButtonText, value);
+    }
+
+    public ReactiveCommand<Unit, Unit> ConnectToggleCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowHomeCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowLiveViewCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowHistoryCommand { get; }
@@ -40,18 +49,37 @@ public class MainWindowViewModel : ViewModelBase {
         _deviceService = new DeviceService();
         _currentPage = new HomeViewModel();
 
-        ConnectCommand = ReactiveCommand.CreateFromTask(ConnectAsync);
+        ConnectToggleCommand = ReactiveCommand.CreateFromTask(ConnectToggleAsync);
         ShowHomeCommand = ReactiveCommand.Create(() => { CurrentPage = new HomeViewModel(); });
         ShowLiveViewCommand = ReactiveCommand.Create(() => { CurrentPage = new LiveViewModel(_deviceService); });
         ShowHistoryCommand = ReactiveCommand.Create(() => { CurrentPage = new HistoryViewModel(_deviceService); });
         ShowIntercomCommand = ReactiveCommand.Create(() => { CurrentPage = new IntercomViewModel(_deviceService); });
         ShowSettingsCommand = ReactiveCommand.Create(() => { CurrentPage = new SettingsViewModel(_deviceService); });
+
+        if (_deviceService.Settings.AutoConnect)
+            Task.Run(AutoConnectAsync);
     }
 
-    private async Task ConnectAsync() {
+    private async Task AutoConnectAsync() {
         ConnectionStatus = "Connecting...";
         var success = await _deviceService.Connect();
         IsConnected = success;
         ConnectionStatus = success ? "Connected" : "Connection failed";
+        if (success)
+            CurrentPage = new LiveViewModel(_deviceService);
+    }
+
+    private async Task ConnectToggleAsync() {
+        if (IsConnected) {
+            _deviceService.Disconnect();
+            IsConnected = false;
+            ConnectionStatus = "Disconnected";
+            CurrentPage = new HomeViewModel();
+        } else {
+            ConnectionStatus = "Connecting...";
+            var success = await _deviceService.Connect();
+            IsConnected = success;
+            ConnectionStatus = success ? "Connected" : "Connection failed";
+        }
     }
 }
