@@ -39,8 +39,10 @@ public class LiveViewModel : ViewModelBase, IDisposable {
     private bool _isListening;
     private bool _isTalking;
     private bool _isMaximized;
+    private bool _isRecording;
     private CancellationTokenSource? _streamCts;
     private Process? _ffmpegProcess;
+    private Process? _recordProcess;
     private static readonly HttpClient StreamClient;
     private static readonly HttpClient SnapshotClient;
 
@@ -86,6 +88,11 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         set => this.RaiseAndSetIfChanged(ref _isMaximized, value);
     }
 
+    public bool IsRecording {
+        get => _isRecording;
+        set => this.RaiseAndSetIfChanged(ref _isRecording, value);
+    }
+
     public Action<bool>? OnMaximizeChanged { get; set; }
 
     public ReactiveCommand<Unit, Unit> OpenDoorCommand { get; }
@@ -94,6 +101,8 @@ public class LiveViewModel : ViewModelBase, IDisposable {
     public ReactiveCommand<Unit, Unit> ToggleListenCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleTalkCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleMaximizeCommand { get; }
+    public ReactiveCommand<Unit, Unit> ScreenshotCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleRecordCommand { get; }
 
     public LiveViewModel(DeviceService deviceService) {
         _deviceService = deviceService;
@@ -114,6 +123,8 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         ToggleListenCommand = ReactiveCommand.Create(ToggleListen);
         ToggleTalkCommand = ReactiveCommand.Create(ToggleTalk);
         ToggleMaximizeCommand = ReactiveCommand.Create(ToggleMaximize);
+        ScreenshotCommand = ReactiveCommand.Create(TakeScreenshot);
+        ToggleRecordCommand = ReactiveCommand.Create(ToggleRecord);
 
         StartStream();
     }
@@ -153,6 +164,117 @@ public class LiveViewModel : ViewModelBase, IDisposable {
                 IsTalking = true;
             } catch { }
         }
+    }
+
+    private void TakeScreenshot() {
+        if (CurrentImage == null) {
+            Status = "No image to save";
+            return;
+        }
+
+        try {
+            var dir = _deviceService.Settings.RecordingPath;
+            Directory.CreateDirectory(dir);
+            var filename = $"doorbird_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.png";
+            var path = Path.Combine(dir, filename);
+            using var fs = File.Create(path);
+            CurrentImage.Save(fs);
+            Status = $"Screenshot saved: {filename}";
+        } catch (Exception ex) {
+            Status = $"Screenshot failed: {ex.Message}";
+        }
+    }
+
+    private void ToggleRecord() {
+        if (IsRecording) {
+            StopRecording();
+        } else {
+            StartRecording();
+        }
+    }
+
+    private void StartRecording() {
+        if (_deviceService.Device == null) {
+            Status = "Not connected";
+            return;
+        }
+
+        var ffmpegPath = FindFfmpeg();
+        if (ffmpegPath == null) {
+            Status = "ffmpeg not found - required for recording";
+            return;
+        }
+
+        var dir = _deviceService.Settings.RecordingPath;
+        Directory.CreateDirectory(dir);
+        var filename = $"doorbird_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.mp4";
+        var path = Path.Combine(dir, filename);
+
+        var user = _deviceService.Settings.Username;
+        var pass = _deviceService.Settings.Password;
+        var host = _deviceService.Settings.DeviceHost;
+
+        // Build ffmpeg arguments based on current mode
+        string args;
+        var rtspUri = _deviceService.Device.RtspUri.ToString();
+        var audioUri = $"http://{user}:{pass}@{host}/bha-api/audio-receive.cgi";
+
+        var outputPath = FfmpegPath(path);
+
+        // Record from RTSP (best quality, available in all modes) + audio from HTTP endpoint
+        args = $"-y -rtsp_transport tcp -i \"{rtspUri}\" " +
+               $"-f mulaw -ar 8000 -ac 1 -i \"{audioUri}\" " +
+               $"-c:v copy -c:a aac -b:a 64k -map 0:v:0 -map 1:a:0 " +
+               $"-movflags +frag_keyframe+empty_moov \"{outputPath}\"";
+
+        try {
+            var psi = new ProcessStartInfo {
+                FileName = ffmpegPath,
+                Arguments = args,
+                RedirectStandardInput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            _recordProcess = Process.Start(psi);
+            if (_recordProcess == null) {
+                Status = "Failed to start recording";
+                return;
+            }
+
+            // Drain stderr in background
+            _ = Task.Run(async () => {
+                try {
+                    using var stderr = _recordProcess.StandardError;
+                    await stderr.ReadToEndAsync();
+                } catch { }
+            });
+
+            IsRecording = true;
+            Status = $"Recording: {filename}";
+        } catch (Exception ex) {
+            Status = $"Record failed: {ex.Message}";
+        }
+    }
+
+    private void StopRecording() {
+        if (_recordProcess != null) {
+            try {
+                if (!_recordProcess.HasExited) {
+                    // Send 'q' to ffmpeg stdin to gracefully stop and finalize MP4
+                    _recordProcess.StandardInput.Write('q');
+                    _recordProcess.StandardInput.Flush();
+                    _recordProcess.WaitForExit(5000);
+                    if (!_recordProcess.HasExited)
+                        _recordProcess.Kill(entireProcessTree: true);
+                }
+            } catch { }
+            _recordProcess.Dispose();
+            _recordProcess = null;
+        }
+        IsRecording = false;
+        Status = "Recording saved";
     }
 
     private void StartStream() {
@@ -203,12 +325,39 @@ public class LiveViewModel : ViewModelBase, IDisposable {
             var full = Path.Combine(dir, name);
             if (File.Exists(full)) return full;
         }
-        // Common locations
+        // Common locations on Windows
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
-            var common = @"C:\ffmpeg\bin\ffmpeg.exe";
-            if (File.Exists(common)) return common;
+            string[] commonPaths = {
+                @"C:\ffmpeg\bin\ffmpeg.exe",
+                @"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    @"Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    @"scoop\shims\ffmpeg.exe"),
+            };
+            foreach (var p in commonPaths)
+                if (File.Exists(p)) return p;
+        }
+        // Common locations on macOS (Homebrew)
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) {
+            string[] commonPaths = {
+                "/opt/homebrew/bin/ffmpeg",       // Apple Silicon
+                "/usr/local/bin/ffmpeg",          // Intel
+            };
+            foreach (var p in commonPaths)
+                if (File.Exists(p)) return p;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Normalizes a file path for use in ffmpeg arguments.
+    /// FFmpeg on Windows doesn't handle backslashes well in some contexts.
+    /// </summary>
+    private static string FfmpegPath(string path) {
+        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? path.Replace('\\', '/')
+            : path;
     }
 
     /// <summary>
@@ -400,6 +549,8 @@ public class LiveViewModel : ViewModelBase, IDisposable {
     public void Dispose() {
         if (IsMaximized)
             OnMaximizeChanged?.Invoke(false);
+        if (IsRecording)
+            StopRecording();
         StopStream();
         _audioService.Dispose();
     }
