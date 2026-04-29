@@ -80,7 +80,8 @@ public class DoorBirdUserDevice : DoorBirdDevice {
         var result = await http.Get("notification.cgi",
             ("url", url),
             ("user", subscriber),
-            ("event", events));
+            ("event", events),
+            ("subscribe", "1"));
         return result.StatusCode;
     }
 

@@ -29,7 +29,16 @@ public class MainWindowViewModel : ViewModelBase {
 
     public ViewModelBase CurrentPage {
         get => _currentPage;
-        set => this.RaiseAndSetIfChanged(ref _currentPage, value);
+        set {
+            // Dispose the previous page if it owns resources (LiveViewModel runs an
+            // ffmpeg subprocess + audio threads + bitmap stream; without disposal these
+            // accumulate every time the user navigates away and back).
+            var old = _currentPage;
+            this.RaiseAndSetIfChanged(ref _currentPage, value);
+            if (!ReferenceEquals(old, value) && old is IDisposable disposable) {
+                disposable.Dispose();
+            }
+        }
     }
 
     public string ConnectionStatus {
