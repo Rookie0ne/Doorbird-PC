@@ -16,6 +16,9 @@ public class PushNotificationServer : IDisposable {
     private Task? _listenTask;
     public int Port { get; }
 
+    /// <summary>Optional LAN IP to bind to if the wildcard prefix isn't permitted (Windows without urlacl).</summary>
+    public string? PreferredLocalAddress { get; set; }
+
     public event EventHandler<PushNotificationEventArgs>? NotificationReceived;
 
     public PushNotificationServer(int port) {
@@ -24,45 +27,66 @@ public class PushNotificationServer : IDisposable {
 
     public void Start() {
         _cts = new CancellationTokenSource();
-        _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://+:{Port}/");
-        try {
-            _listener.Start();
-        } catch {
-            // Fallback to localhost only if wildcard fails (no elevated privileges)
-            _listener = new HttpListener();
-            _listener.Prefixes.Add($"http://localhost:{Port}/");
-            _listener.Start();
+
+        // Try in order: wildcard (LAN-reachable, works without admin on Linux/macOS),
+        // then the specific LAN IP (works without admin on Windows),
+        // then localhost (last resort — the device on the LAN won't reach us, but startup still succeeds).
+        var prefixes = new System.Collections.Generic.List<string> { $"http://+:{Port}/" };
+        if (!string.IsNullOrWhiteSpace(PreferredLocalAddress))
+            prefixes.Add($"http://{PreferredLocalAddress}:{Port}/");
+        prefixes.Add($"http://localhost:{Port}/");
+
+        foreach (var prefix in prefixes) {
+            try {
+                _listener = new HttpListener();
+                _listener.Prefixes.Add(prefix);
+                _listener.Start();
+                break;
+            } catch {
+                _listener = null;
+            }
         }
+        if (_listener == null) throw new InvalidOperationException($"Could not bind notification listener on port {Port}.");
+
         _listenTask = Task.Run(() => ListenLoop(_cts.Token));
     }
 
     private async Task ListenLoop(CancellationToken ct) {
-        while (!ct.IsCancellationRequested && _listener?.IsListening == true) {
+        while (!ct.IsCancellationRequested) {
+            HttpListener? listener;
             try {
-                var context = await _listener.GetContextAsync();
+                listener = _listener;
+                if (listener?.IsListening != true) break;
+            } catch (ObjectDisposedException) {
+                break;
+            }
+
+            try {
+                var context = await listener.GetContextAsync();
                 var query = context.Request.QueryString;
                 var eventName = query["event"] ?? "unknown";
                 NotificationReceived?.Invoke(this, new PushNotificationEventArgs(eventName));
 
                 context.Response.StatusCode = 200;
                 context.Response.Close();
-            } catch (ObjectDisposedException) {
-                break;
-            } catch (HttpListenerException) {
+            } catch {
+                // Any failure (listener closed, request aborted, handler threw) — bail out.
                 break;
             }
         }
     }
 
     public void Stop() {
-        _cts?.Cancel();
-        _listener?.Stop();
-        _listener?.Close();
+        try { _cts?.Cancel(); } catch { }
+        var listener = _listener;
+        _listener = null;
+        try { listener?.Stop(); } catch { }
+        try { listener?.Close(); } catch { }
     }
 
     public void Dispose() {
         Stop();
-        _cts?.Dispose();
+        try { _cts?.Dispose(); } catch { }
+        _cts = null;
     }
 }

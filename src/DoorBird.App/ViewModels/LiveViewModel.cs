@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using DoorBird.App.Services;
 using ReactiveUI;
 
@@ -60,7 +61,18 @@ public class LiveViewModel : ViewModelBase, IDisposable {
 
     public Bitmap? CurrentImage {
         get => _currentImage;
-        set => this.RaiseAndSetIfChanged(ref _currentImage, value);
+        set {
+            // Avalonia Bitmap wraps Skia memory the GC can't see, so replacing the
+            // current frame without disposing the previous one leaks unmanaged memory
+            // at ~MB-per-frame rates on a live MJPEG stream. Defer disposal to the UI
+            // thread at background priority so any in-flight render of the old bitmap
+            // completes first.
+            var old = _currentImage;
+            this.RaiseAndSetIfChanged(ref _currentImage, value);
+            if (old != null && !ReferenceEquals(old, value)) {
+                Dispatcher.UIThread.Post(old.Dispose, DispatcherPriority.Background);
+            }
+        }
     }
 
     public string Status {
@@ -553,5 +565,8 @@ public class LiveViewModel : ViewModelBase, IDisposable {
             StopRecording();
         StopStream();
         _audioService.Dispose();
+        var img = _currentImage;
+        _currentImage = null;
+        img?.Dispose();
     }
 }

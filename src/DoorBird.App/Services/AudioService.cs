@@ -79,7 +79,7 @@ public class AudioService : IDisposable {
     [DllImport("libc", EntryPoint = "close", CallingConvention = CallingConvention.Cdecl)]
     private static extern int Close(int fd);
 
-    private static void EnsureInitialized() {
+    internal static void EnsureInitialized() {
         if (_paInitialized) return;
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) {
             try { AlsaSetErrorHandler(SilentHandler); } catch { }

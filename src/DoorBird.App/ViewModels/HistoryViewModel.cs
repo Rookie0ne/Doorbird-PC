@@ -6,12 +6,13 @@ using System.Reactive;
 using System.Reactive.Linq;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using DoorBird.App.Services;
 using ReactiveUI;
 
 namespace DoorBird.App.ViewModels;
 
-public class HistoryViewModel : ViewModelBase {
+public class HistoryViewModel : ViewModelBase, IDisposable {
     private readonly DeviceService _deviceService;
     private Bitmap? _currentImage;
     private int _currentIndex = 1;
@@ -27,7 +28,13 @@ public class HistoryViewModel : ViewModelBase {
 
     public Bitmap? CurrentImage {
         get => _currentImage;
-        set => this.RaiseAndSetIfChanged(ref _currentImage, value);
+        set {
+            var old = _currentImage;
+            this.RaiseAndSetIfChanged(ref _currentImage, value);
+            if (old != null && !ReferenceEquals(old, value)) {
+                Dispatcher.UIThread.Post(old.Dispose, DispatcherPriority.Background);
+            }
+        }
     }
 
     public int CurrentIndex {
@@ -61,6 +68,12 @@ public class HistoryViewModel : ViewModelBase {
 
         // Auto-load first image on open
         Task.Run(async () => await LoadImageAsync());
+    }
+
+    public void Dispose() {
+        var img = _currentImage;
+        _currentImage = null;
+        img?.Dispose();
     }
 
     private async Task LoadImageAsync() {

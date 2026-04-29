@@ -105,6 +105,22 @@ public class InfoViewModel : ViewModelBase {
                     sb.Append(mjpegInfo);
                 }
             } catch { }
+
+            // Doorbell listener
+            sb.AppendLine();
+            sb.AppendLine("DOORBELL LISTENER");
+            var monitor = _deviceService.DoorbellMonitor;
+            if (monitor == null) {
+                sb.AppendLine("  Status:            Not initialized");
+            } else {
+                // StartAsync runs in the background after Connect — wait briefly so we don't
+                // render this section before it has a chance to set Status.
+                for (int i = 0; i < 30 && monitor.Status == null; i++)
+                    await Task.Delay(100);
+                sb.AppendLine($"  Running:           {(monitor.IsRunning ? "Yes" : "No")}");
+                sb.AppendLine($"  Notification Port: {_deviceService.Settings.NotificationPort}");
+                sb.AppendLine($"  Status:            {monitor.Status ?? "Initializing..."}");
+            }
         } else {
             sb.AppendLine($"  Status:            Not connected");
         }

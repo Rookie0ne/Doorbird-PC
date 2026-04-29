@@ -11,6 +11,7 @@ public class DeviceService {
     public DoorBirdUserDevice? Device { get; private set; }
     public bool IsConnected => Device != null;
     public AppSettings Settings { get; }
+    public DoorbellMonitor? DoorbellMonitor { get; private set; }
 
     public DeviceService() {
         Settings = AppSettings.Load();
@@ -32,6 +33,9 @@ public class DeviceService {
             var status = await device.Ready();
             if (status == HttpStatusCode.OK) {
                 Device = device;
+                DoorbellMonitor = new DoorbellMonitor(device, ip, Settings);
+                // Don't await — registration involves a device round-trip and shouldn't block Connect.
+                _ = DoorbellMonitor.StartAsync();
                 return true;
             }
         } catch { }
@@ -39,6 +43,8 @@ public class DeviceService {
     }
 
     public void Disconnect() {
+        DoorbellMonitor?.Dispose();
+        DoorbellMonitor = null;
         Device = null;
     }
 }

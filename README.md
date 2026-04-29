@@ -11,7 +11,7 @@ Based on the original [DoorBird-Windows](https://gitlab.com/klikini/DoorBird-Win
 - **Screenshot & Recording** — Save a snapshot as PNG or record video+audio to MP4 (via ffmpeg) directly from the live view
 - **Intercom** — Full-duplex two-way audio (G.711 mu-law) with speaker and mic toggle buttons available in both the Intercom page and the Live View toolbar
 - **History Browser** — Browse historical doorbell/motion images with previous/next navigation
-- **Push Notifications** — Built-in HTTP listener receives doorbell, motion, and door-open events from the device
+- **Doorbell Chime** — Plays a synthesized two-tone chime through the selected audio output when someone rings the doorbell. The app registers a notification rule with the device on connect and runs a built-in HTTP listener for incoming events.
 - **Audio Device Selection** — Choose specific speaker and microphone devices, with automatic fallback to system defaults
 - **Auto-Connect** — Optionally connect to the device and open Live View automatically on startup
 - **Settings Persistence** — All configuration saved to a local JSON file
@@ -132,6 +132,18 @@ Settings are stored in:
 - **Linux:** `~/.config/DoorBird/settings.json`
 - **macOS:** `~/Library/Application Support/DoorBird/settings.json`
 - **Windows:** `%APPDATA%\DoorBird\settings.json`
+
+### Doorbell chime — Windows note
+
+On Linux and macOS the notification listener binds to all interfaces (`http://+:<port>/`) without elevated privileges. On Windows, `HttpListener` rejects wildcard prefixes unless the binding is reserved with `netsh http add urlacl` or the app is running as administrator. The app handles this automatically by falling back to binding the specific LAN IP that routes to the device, which works without admin rights in nearly all home setups.
+
+If for some reason that fallback also fails (e.g. the chosen `Notification Port` is already in use, or a firewall blocks inbound traffic), the listener will bind to `localhost` only — the app will still launch and everything else will work, but the device on your LAN won't be able to reach the listener and the doorbell chime won't sound. To fix it, either pick a different `Notification Port` in Settings, allow the app through Windows Firewall, or run once as administrator with:
+
+```cmd
+netsh http add urlacl url=http://+:8080/ user=Everyone
+```
+
+(replace `8080` with your configured `Notification Port`).
 
 ## Project Structure
 
