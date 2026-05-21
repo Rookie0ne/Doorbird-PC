@@ -254,6 +254,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
                 Status = "Failed to start recording";
                 return;
             }
+            FfmpegProcessTracker.Register(_recordProcess.Id);
 
             // Drain stderr in background
             _ = Task.Run(async () => {
@@ -272,6 +273,8 @@ public class LiveViewModel : ViewModelBase, IDisposable {
 
     private void StopRecording() {
         if (_recordProcess != null) {
+            var pid = -1;
+            try { pid = _recordProcess.Id; } catch { }
             try {
                 if (!_recordProcess.HasExited) {
                     // Send 'q' to ffmpeg stdin to gracefully stop and finalize MP4
@@ -284,6 +287,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
             } catch { }
             _recordProcess.Dispose();
             _recordProcess = null;
+            FfmpegProcessTracker.Unregister(pid);
         }
         IsRecording = false;
         Status = "Recording saved";
@@ -316,12 +320,15 @@ public class LiveViewModel : ViewModelBase, IDisposable {
 
     private void KillFfmpeg() {
         if (_ffmpegProcess != null) {
+            var pid = -1;
+            try { pid = _ffmpegProcess.Id; } catch { }
             try {
                 if (!_ffmpegProcess.HasExited)
                     _ffmpegProcess.Kill(entireProcessTree: true);
             } catch { }
             _ffmpegProcess.Dispose();
             _ffmpegProcess = null;
+            FfmpegProcessTracker.Unregister(pid);
         }
     }
 
@@ -405,6 +412,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
                     Status = "Failed to start ffmpeg";
                     return;
                 }
+                FfmpegProcessTracker.Register(_ffmpegProcess.Id);
 
                 // Discard stderr in background to prevent buffer deadlock
                 _ = Task.Run(async () => {
