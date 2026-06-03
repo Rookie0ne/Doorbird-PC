@@ -44,6 +44,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
     private CancellationTokenSource? _streamCts;
     private Process? _ffmpegProcess;
     private Process? _recordProcess;
+    private DateTime _lastFrameAt;
     private static readonly HttpClient StreamClient;
     private static readonly HttpClient SnapshotClient;
 
@@ -297,6 +298,9 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         if (_streamCts != null) return;
         _streamCts = new CancellationTokenSource();
         var ct = _streamCts.Token;
+        _lastFrameAt = DateTime.UtcNow;
+
+        Task.Run(() => WatchdogLoop(ct), ct);
 
         switch (Mode) {
             case LiveMode.Rtsp:
@@ -308,6 +312,31 @@ public class LiveViewModel : ViewModelBase, IDisposable {
             default:
                 Task.Run(() => SnapshotLoop(ct), ct);
                 break;
+        }
+    }
+
+    // Detects half-open TCP sockets (classic laptop sleep/resume failure mode)
+    // and ffmpeg/device stalls. The mode loops' inner ReadAsync calls can block
+    // indefinitely when the kernel never reports the socket as dead; this
+    // watchdog forces a reconnect when no frame has arrived within the threshold.
+    private async Task WatchdogLoop(CancellationToken ct) {
+        var threshold = Mode == LiveMode.Snapshot
+            ? TimeSpan.FromSeconds(8)
+            : TimeSpan.FromSeconds(12);
+
+        while (!ct.IsCancellationRequested) {
+            try { await Task.Delay(2000, ct); } catch { return; }
+
+            if (DateTime.UtcNow - _lastFrameAt > threshold) {
+                Dispatcher.UIThread.Post(() => {
+                    if (_streamCts != null && _streamCts.Token == ct && !ct.IsCancellationRequested) {
+                        Status = "Stream stalled - reconnecting...";
+                        StopStream();
+                        StartStream();
+                    }
+                });
+                return;
+            }
         }
     }
 
@@ -398,6 +427,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
 
         while (!ct.IsCancellationRequested) {
             try {
+                _lastFrameAt = DateTime.UtcNow;
                 var psi = new ProcessStartInfo {
                     FileName = ffmpegPath,
                     Arguments = $"-rtsp_transport tcp -i \"{rtspUri}\" -f mjpeg -q:v 3 -an pipe:1",
@@ -450,6 +480,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
 
         while (!ct.IsCancellationRequested) {
             try {
+                _lastFrameAt = DateTime.UtcNow;
                 var uri = _deviceService.Device.LiveVideoUri;
                 var request = new HttpRequestMessage(HttpMethod.Get, uri);
                 var auth = Convert.ToBase64String(
@@ -508,6 +539,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
                             try {
                                 var bitmap = new Bitmap(frameBuffer);
                                 CurrentImage = bitmap;
+                                _lastFrameAt = DateTime.UtcNow;
                                 var modeLabel = Mode == LiveMode.Rtsp ? "RTSP" : "MJPEG";
                                 Status = $"{modeLabel} - {DateTime.Now:HH:mm:ss}";
                             } catch { }
@@ -546,6 +578,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
             var data = await response.Content.ReadAsByteArrayAsync();
             using var ms = new MemoryStream(data);
             CurrentImage = new Bitmap(ms);
+            _lastFrameAt = DateTime.UtcNow;
             Status = $"Snapshot - {DateTime.Now:HH:mm:ss}";
         } catch (Exception ex) {
             Status = $"Error: {ex.Message}";
