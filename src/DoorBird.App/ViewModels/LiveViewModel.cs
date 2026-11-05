@@ -1,12 +1,9 @@
 using System;
-using System.Buffers;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reactive;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +12,8 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using DoorBird.App.Services;
+using DoorBird.App.Video;
+using DoorBird.App.Video.Gpu;
 using ReactiveUI;
 
 namespace DoorBird.App.ViewModels;
@@ -41,9 +40,14 @@ public class LiveViewModel : ViewModelBase, IDisposable {
     private bool _isTalking;
     private bool _isMaximized;
     private bool _isRecording;
+    private bool _isGpuPresenting;
+    private string _videoPathLabel = "";
+    private IGpuVideoPresenter? _gpuPresenter;
+    private string? _gpuUnavailableReason;
     private CancellationTokenSource? _streamCts;
-    private Process? _ffmpegProcess;
-    private Process? _recordProcess;
+    private RtspVideoDecoder? _decoder;
+    private Mp4Recorder? _recorder;
+    private bool _currentIsPooled;
     private DateTime _lastFrameAt;
     private static readonly HttpClient StreamClient;
     private static readonly HttpClient SnapshotClient;
@@ -68,12 +72,51 @@ public class LiveViewModel : ViewModelBase, IDisposable {
             // at ~MB-per-frame rates on a live MJPEG stream. Defer disposal to the UI
             // thread at background priority so any in-flight render of the old bitmap
             // completes first.
+            //
+            // RTSP frames come from a small pool the decoder owns and reuses, so those
+            // must not be disposed here; _currentIsPooled tracks which kind is current.
             var old = _currentImage;
+            var oldWasPooled = _currentIsPooled;
+            _currentIsPooled = false;
             this.RaiseAndSetIfChanged(ref _currentImage, value);
-            if (old != null && !ReferenceEquals(old, value)) {
+            if (old != null && !ReferenceEquals(old, value) && !oldWasPooled) {
                 Dispatcher.UIThread.Post(old.Dispose, DispatcherPriority.Background);
             }
         }
+    }
+
+    private void SetPooledFrame(WriteableBitmap frame) {
+        var old = _currentImage;
+        var oldWasPooled = _currentIsPooled;
+        _currentIsPooled = true;
+        this.RaiseAndSetIfChanged(ref _currentImage, frame, nameof(CurrentImage));
+        if (old != null && !ReferenceEquals(old, frame) && !oldWasPooled) {
+            Dispatcher.UIThread.Post(old.Dispose, DispatcherPriority.Background);
+        }
+    }
+
+    /// <summary>True while RTSP frames are presented straight from the GPU (no bitmap).</summary>
+    public bool IsGpuPresenting {
+        get => _isGpuPresenting;
+        set => this.RaiseAndSetIfChanged(ref _isGpuPresenting, value);
+    }
+
+    /// <summary>Human-readable decode/presentation path for the status line.</summary>
+    public string VideoPathLabel {
+        get => _videoPathLabel;
+        set => this.RaiseAndSetIfChanged(ref _videoPathLabel, value);
+    }
+
+    /// <summary>Set by the view's VideoSurface once the compositor-backed presenter exists.</summary>
+    public IGpuVideoPresenter? GpuPresenter {
+        get => _gpuPresenter;
+        set => this.RaiseAndSetIfChanged(ref _gpuPresenter, value);
+    }
+
+    /// <summary>Why the view could not build a zero-copy presenter, for the status line and Info page.</summary>
+    public string? GpuUnavailableReason {
+        get => _gpuUnavailableReason;
+        set => this.RaiseAndSetIfChanged(ref _gpuUnavailableReason, value);
     }
 
     public string Status {
@@ -136,7 +179,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         ToggleListenCommand = ReactiveCommand.Create(ToggleListen);
         ToggleTalkCommand = ReactiveCommand.Create(ToggleTalk);
         ToggleMaximizeCommand = ReactiveCommand.Create(ToggleMaximize);
-        ScreenshotCommand = ReactiveCommand.Create(TakeScreenshot);
+        ScreenshotCommand = ReactiveCommand.CreateFromTask(TakeScreenshot);
         ToggleRecordCommand = ReactiveCommand.Create(ToggleRecord);
 
         StartStream();
@@ -179,8 +222,15 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         }
     }
 
-    private void TakeScreenshot() {
-        if (CurrentImage == null) {
+    private async Task TakeScreenshot() {
+        Bitmap? image = CurrentImage;
+        Bitmap? owned = null;
+        if (_decoder != null && (IsGpuPresenting || image == null)) {
+            // The live frame lives on the GPU; ask the decoder for a system-memory copy.
+            owned = await _decoder.CaptureSnapshotAsync(TimeSpan.FromSeconds(3));
+            image = owned;
+        }
+        if (image == null) {
             Status = "No image to save";
             return;
         }
@@ -191,10 +241,12 @@ public class LiveViewModel : ViewModelBase, IDisposable {
             var filename = $"doorbird_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.png";
             var path = Path.Combine(dir, filename);
             using var fs = File.Create(path);
-            CurrentImage.Save(fs);
+            image.Save(fs);
             Status = $"Screenshot saved: {filename}";
         } catch (Exception ex) {
             Status = $"Screenshot failed: {ex.Message}";
+        } finally {
+            owned?.Dispose();
         }
     }
 
@@ -211,10 +263,8 @@ public class LiveViewModel : ViewModelBase, IDisposable {
             Status = "Not connected";
             return;
         }
-
-        var ffmpegPath = FindFfmpeg();
-        if (ffmpegPath == null) {
-            Status = "ffmpeg not found - required for recording";
+        if (!FfmpegNative.TryInitialize(out var ffErr)) {
+            Status = $"Recording unavailable: {ffErr}";
             return;
         }
 
@@ -223,48 +273,20 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         var filename = $"doorbird_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.mp4";
         var path = Path.Combine(dir, filename);
 
-        var user = _deviceService.Settings.Username;
-        var pass = _deviceService.Settings.Password;
+        var user = Uri.EscapeDataString(_deviceService.Settings.Username);
+        var pass = Uri.EscapeDataString(_deviceService.Settings.Password);
         var host = _deviceService.Settings.DeviceHost;
-
-        // Build ffmpeg arguments based on current mode
-        string args;
         var rtspUri = _deviceService.Device.RtspUri.ToString();
         var audioUri = $"http://{user}:{pass}@{host}/bha-api/audio-receive.cgi";
 
-        var outputPath = FfmpegPath(path);
-
-        // Record from RTSP (best quality, available in all modes) + audio from HTTP endpoint
-        args = $"-y -rtsp_transport tcp -i \"{rtspUri}\" " +
-               $"-f mulaw -ar 8000 -ac 1 -i \"{audioUri}\" " +
-               $"-c:v copy -c:a aac -b:a 64k -map 0:v:0 -map 1:a:0 " +
-               $"-movflags +frag_keyframe+empty_moov \"{outputPath}\"";
-
         try {
-            var psi = new ProcessStartInfo {
-                FileName = ffmpegPath,
-                Arguments = args,
-                RedirectStandardInput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            _recordProcess = Process.Start(psi);
-            if (_recordProcess == null) {
-                Status = "Failed to start recording";
-                return;
-            }
-            FfmpegProcessTracker.Register(_recordProcess.Id);
-
-            // Drain stderr in background
-            _ = Task.Run(async () => {
-                try {
-                    using var stderr = _recordProcess.StandardError;
-                    await stderr.ReadToEndAsync();
-                } catch { }
-            });
-
+            // Records from RTSP (best quality, works in every live mode) plus audio
+            // from the HTTP endpoint. The recorder opens its own RTSP session so
+            // recording keeps working if the live stream reconnects.
+            var rec = new Mp4Recorder(rtspUri, audioUri, path);
+            rec.Error += msg => Dispatcher.UIThread.Post(() => Status = $"Recording: {msg}");
+            rec.Start();
+            _recorder = rec;
             IsRecording = true;
             Status = $"Recording: {filename}";
         } catch (Exception ex) {
@@ -273,25 +295,17 @@ public class LiveViewModel : ViewModelBase, IDisposable {
     }
 
     private void StopRecording() {
-        if (_recordProcess != null) {
-            var pid = -1;
-            try { pid = _recordProcess.Id; } catch { }
-            try {
-                if (!_recordProcess.HasExited) {
-                    // Send 'q' to ffmpeg stdin to gracefully stop and finalize MP4
-                    _recordProcess.StandardInput.Write('q');
-                    _recordProcess.StandardInput.Flush();
-                    _recordProcess.WaitForExit(5000);
-                    if (!_recordProcess.HasExited)
-                        _recordProcess.Kill(entireProcessTree: true);
-                }
-            } catch { }
-            _recordProcess.Dispose();
-            _recordProcess = null;
-            FfmpegProcessTracker.Unregister(pid);
+        var rec = _recorder;
+        _recorder = null;
+        if (rec != null) {
+            Status = "Finishing recording...";
+            // Stop joins the pumps and writes the trailer; keep the UI responsive.
+            Task.Run(() => {
+                try { rec.Dispose(); } catch { }
+                Dispatcher.UIThread.Post(() => Status = "Recording saved");
+            });
         }
         IsRecording = false;
-        Status = "Recording saved";
     }
 
     private void StartStream() {
@@ -304,7 +318,7 @@ public class LiveViewModel : ViewModelBase, IDisposable {
 
         switch (Mode) {
             case LiveMode.Rtsp:
-                Task.Run(() => RtspLoop(ct), ct);
+                _ = RtspLoop(ct);
                 break;
             case LiveMode.Mjpeg:
                 Task.Run(() => MjpegLoop(ct), ct);
@@ -344,140 +358,63 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         _streamCts?.Cancel();
         _streamCts?.Dispose();
         _streamCts = null;
-        KillFfmpeg();
-    }
-
-    private void KillFfmpeg() {
-        if (_ffmpegProcess != null) {
-            var pid = -1;
-            try { pid = _ffmpegProcess.Id; } catch { }
-            try {
-                if (!_ffmpegProcess.HasExited)
-                    _ffmpegProcess.Kill(entireProcessTree: true);
-            } catch { }
-            _ffmpegProcess.Dispose();
-            _ffmpegProcess = null;
-            FfmpegProcessTracker.Unregister(pid);
+        var dec = _decoder;
+        _decoder = null;
+        if (dec != null) {
+            // Dispose joins the decode thread; do it off the UI thread because the
+            // presenter may be waiting for the UI thread to import a texture.
+            Task.Run(() => { try { dec.Dispose(); } catch { } });
         }
+        IsGpuPresenting = false;
+        VideoPathLabel = "";
     }
 
     /// <summary>
-    /// Finds the ffmpeg binary. Returns null if not found.
+    /// Decodes the RTSP stream in-process (bundled FFmpeg). Frames arrive either as
+    /// pooled bitmaps (software / copy paths) or straight on the GPU through the
+    /// view's presenter (zero-copy path).
     /// </summary>
-    private static string? FindFfmpeg() {
-        // Check PATH
-        var name = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "ffmpeg.exe" : "ffmpeg";
-        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
-        var sep = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ';' : ':';
-        foreach (var dir in pathEnv.Split(sep, StringSplitOptions.RemoveEmptyEntries)) {
-            var full = Path.Combine(dir, name);
-            if (File.Exists(full)) return full;
-        }
-        // Common locations on Windows
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
-            string[] commonPaths = {
-                @"C:\ffmpeg\bin\ffmpeg.exe",
-                @"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    @"Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    @"scoop\shims\ffmpeg.exe"),
-            };
-            foreach (var p in commonPaths)
-                if (File.Exists(p)) return p;
-        }
-        // Common locations on macOS (Homebrew)
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) {
-            string[] commonPaths = {
-                "/opt/homebrew/bin/ffmpeg",       // Apple Silicon
-                "/usr/local/bin/ffmpeg",          // Intel
-            };
-            foreach (var p in commonPaths)
-                if (File.Exists(p)) return p;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Normalizes a file path for use in ffmpeg arguments.
-    /// FFmpeg on Windows doesn't handle backslashes well in some contexts.
-    /// </summary>
-    private static string FfmpegPath(string path) {
-        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? path.Replace('\\', '/')
-            : path;
-    }
-
-    /// <summary>
-    /// Spawns ffmpeg to decode the RTSP stream into MJPEG on stdout, then parses JPEG frames.
-    /// </summary>
-    private async Task RtspLoop(CancellationToken ct) {
+    private Task RtspLoop(CancellationToken ct) {
         if (_deviceService.Device == null) {
             Status = "Not connected";
-            return;
+            return Task.CompletedTask;
+        }
+        if (!FfmpegNative.TryInitialize(out var ffErr)) {
+            Status = $"RTSP unavailable: {ffErr}";
+            return Task.CompletedTask;
         }
 
-        var ffmpegPath = FindFfmpeg();
-        if (ffmpegPath == null) {
-            Status = "ffmpeg not found - install ffmpeg for RTSP support";
-            return;
-        }
+        var mode = HardwareAccelerationModeExtensions.ParseMode(_deviceService.Settings.HardwareAcceleration);
+        var decoder = new RtspVideoDecoder(_deviceService.Device.RtspUri.ToString(), mode, () => _gpuPresenter);
 
-        var rtspUri = _deviceService.Device.RtspUri.ToString();
+        decoder.StatusChanged += msg => Dispatcher.UIThread.Post(() => {
+            if (!ReferenceEquals(_decoder, decoder)) return;
+            Status = msg;
+        });
+        decoder.PathChanged += path => Dispatcher.UIThread.Post(() => {
+            if (!ReferenceEquals(_decoder, decoder)) return;
+            var zeroCopy = path == VideoPath.HardwareZeroCopy;
+            if (zeroCopy && !IsGpuPresenting) CurrentImage = null;
+            IsGpuPresenting = zeroCopy;
+            VideoPathLabel = path.Describe(decoder.DeviceLabel);
+        });
+        decoder.FrameReady += bmp => Dispatcher.UIThread.Post(() => {
+            if (!ReferenceEquals(_decoder, decoder) || ct.IsCancellationRequested) return;
+            SetPooledFrame(bmp);
+            _lastFrameAt = DateTime.UtcNow;
+            Status = $"RTSP ({VideoPathLabel}) - {DateTime.Now:HH:mm:ss}";
+        }, DispatcherPriority.Render);
+        decoder.FramePresented += () => {
+            _lastFrameAt = DateTime.UtcNow;
+            Dispatcher.UIThread.Post(() => {
+                if (!ReferenceEquals(_decoder, decoder) || ct.IsCancellationRequested) return;
+                Status = $"RTSP ({VideoPathLabel}) - {DateTime.Now:HH:mm:ss}";
+            }, DispatcherPriority.Background);
+        };
 
-        while (!ct.IsCancellationRequested) {
-            try {
-                _lastFrameAt = DateTime.UtcNow;
-                // Transcodes to MJPEG so this can share ReadMjpegFrames with the
-                // device's own MJPEG mode. Hardware acceleration was measured and
-                // declined -- see HARDWARE-ACCELERATION.md. Short version: only a
-                // full-GPU pipeline is faster than software (Intel QSV, -68% CPU);
-                // every decode-only variant is SLOWER, VA-API's MJPEG encoder is
-                // broken here despite being advertised, and NVIDIA has no MJPEG
-                // encoder at all. Not worth it because this app's own JPEG decode
-                // costs more than ffmpeg does.
-                var psi = new ProcessStartInfo {
-                    FileName = ffmpegPath,
-                    Arguments = $"-rtsp_transport tcp -i \"{rtspUri}\" -f mjpeg -q:v 3 -an pipe:1",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                _ffmpegProcess = Process.Start(psi);
-                if (_ffmpegProcess == null) {
-                    Status = "Failed to start ffmpeg";
-                    return;
-                }
-                FfmpegProcessTracker.Register(_ffmpegProcess.Id);
-
-                // Discard stderr in background to prevent buffer deadlock
-                _ = Task.Run(async () => {
-                    try {
-                        using var stderr = _ffmpegProcess.StandardError;
-                        await stderr.ReadToEndAsync(ct);
-                    } catch { }
-                }, ct);
-
-                Status = "RTSP Stream (ffmpeg)";
-                using var stdout = _ffmpegProcess.StandardOutput.BaseStream;
-                await ReadMjpegFrames(stdout, ct);
-
-                // If we get here, stream ended — wait briefly then retry
-                KillFfmpeg();
-                if (!ct.IsCancellationRequested) {
-                    Status = "RTSP stream ended - reconnecting...";
-                    await Task.Delay(2000, ct);
-                }
-            } catch (OperationCanceledException) {
-                break;
-            } catch (Exception ex) {
-                KillFfmpeg();
-                Status = $"RTSP error: {ex.Message} - reconnecting...";
-                try { await Task.Delay(2000, ct); } catch { break; }
-            }
-        }
+        _decoder = decoder;
+        decoder.Start();
+        return Task.CompletedTask;
     }
 
     private async Task MjpegLoop(CancellationToken ct) {
@@ -615,7 +552,9 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         StopStream();
         _audioService.Dispose();
         var img = _currentImage;
+        var pooled = _currentIsPooled;
         _currentImage = null;
-        img?.Dispose();
+        _currentIsPooled = false;
+        if (!pooled) img?.Dispose();
     }
 }

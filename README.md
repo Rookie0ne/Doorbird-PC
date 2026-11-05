@@ -6,9 +6,9 @@ Based on the original [DoorBird-Windows](https://gitlab.com/klikini/DoorBird-Win
 
 ## Features
 
-- **Live View** — Three video modes: RTSP stream (H.264 via ffmpeg), MJPEG stream, or snapshot polling. Maximizable view with sidebar controls.
+- **Live View** — Three video modes: RTSP stream (H.264, decoded in-process with bundled FFmpeg, GPU zero-copy where available), MJPEG stream, or snapshot polling. Maximizable view with sidebar controls.
 - **Door & Light Control** — Open door relay and activate IR light directly from the live view
-- **Screenshot & Recording** — Save a snapshot as PNG or record video+audio to MP4 (via ffmpeg) directly from the live view
+- **Screenshot & Recording** — Save a snapshot as PNG or record video+audio to MP4 directly from the live view (H.264 remuxed without re-encoding, audio as AAC)
 - **Intercom** — Full-duplex two-way audio (G.711 mu-law) with speaker and mic toggle buttons available in both the Intercom page and the Live View toolbar
 - **History Browser** — Browse historical doorbell/motion images with previous/next navigation
 - **Doorbell Chime** — Plays a synthesized two-tone chime through the selected audio output when someone rings the doorbell. The app registers a notification rule with the device on connect and runs a built-in HTTP listener for incoming events.
@@ -34,20 +34,20 @@ sudo dnf install portaudio        # Fedora
 # or
 sudo pacman -S portaudio           # Arch
 
-# FFmpeg (optional — required only for RTSP video mode)
-sudo apt install ffmpeg            # Debian/Ubuntu
-# or
-sudo dnf install ffmpeg            # Fedora
-# or
-sudo pacman -S ffmpeg              # Arch
+# Bundled FFmpeg libraries (RTSP video mode and recording). Downloaded once,
+# not installed system-wide; see native/ffmpeg/README.md
+scripts/fetch-ffmpeg.sh linux-x64  # or linux-arm64
 ```
 
 ### Linux (running published binary)
 
 ```bash
 sudo apt install libportaudio2     # Required — intercom audio
-sudo apt install ffmpeg            # Optional — only for RTSP video mode
 ```
+
+No FFmpeg install is needed: the release ships its own FFmpeg libraries next to the executable.
+For GPU zero-copy video on Intel or AMD, the VA-API driver for your GPU must be present
+(`intel-media-driver` / `mesa` on most distributions). Without it the app decodes in software.
 
 ### macOS (building from source)
 
@@ -58,22 +58,21 @@ brew install dotnet-sdk
 # PortAudio (required for intercom audio)
 brew install portaudio
 
-# FFmpeg (optional — required only for RTSP video mode)
-brew install ffmpeg
+# Bundled FFmpeg libraries: built by the ffmpeg-macos GitHub Actions workflow
+# (no LGPL shared build exists to download). Drop the artifact into native/ffmpeg/<rid>/.
 ```
 
 ### macOS (running published binary)
 
 ```bash
 brew install portaudio             # Required — intercom audio
-brew install ffmpeg                # Optional — only for RTSP video mode
 ```
 
 ### Windows
 
 - For building from source: install the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- For running a published binary: no prerequisites for MJPEG/Snapshot modes
-- **Optional:** Install [FFmpeg](https://www.gyan.dev/ffmpeg/builds/) and add it to PATH for RTSP video mode
+- For building from source, also run `scripts/fetch-ffmpeg.sh win-x64` (Git Bash or WSL) to download the bundled FFmpeg libraries
+- For running a published binary: no prerequisites. PortAudio and FFmpeg are bundled.
 
 ## Build & Run
 
@@ -118,7 +117,7 @@ publish\win-x64\DoorBird.App.exe
 ./publish/osx-arm64/DoorBird.App
 ```
 
-**Note:** On Linux and macOS, `libportaudio` is required for intercom audio (the app will show an error on startup if missing). FFmpeg is optional and only needed if you select RTSP as the video mode in Settings. On Windows, PortAudio is bundled; FFmpeg must be installed separately for RTSP mode.
+**Note:** On Linux and macOS, `libportaudio` is required for intercom audio (the app will show an error on startup if missing). FFmpeg is bundled on every platform; run `scripts/fetch-ffmpeg.sh <rid>` before publishing so the libraries are copied next to the executable. If they are missing, MJPEG and Snapshot modes still work and the Info page says why RTSP and recording are unavailable.
 
 ## Configuration
 
@@ -126,7 +125,8 @@ On first run, go to **Settings** and configure:
 
 - **Device Host** — IP address or hostname of your DoorBird device
 - **Username / Password** — Credentials from the DoorBird mobile app
-- **Video Mode** — RTSP Stream (H.264 via ffmpeg, lowest latency), MJPEG Stream (default, no extra deps), or Snapshot Polling (1 fps fallback)
+- **Video Mode** — RTSP Stream (H.264, lowest latency), MJPEG Stream (default), or Snapshot Polling (1 fps fallback)
+- **Hardware Acceleration** (RTSP only) — *Auto* (default) uses the GPU only when decoded frames can stay on it all the way to the screen, and verifies that by producing real frames; otherwise it decodes in software. *Enabled* forces GPU decoding even when frames must be copied back. *Disabled* always decodes on the CPU. The status line under the video shows which path is active, e.g. `RTSP (VAAPI zero-copy)`.
 - **Audio Output / Input** — Select specific speaker and microphone, or leave as system default
 - **Notification Port** — Port for receiving push notifications (default: 8080)
 - **Recording Path** — Directory for saving captured images
@@ -153,6 +153,9 @@ netsh http add urlacl url=http://+:8080/ user=Everyone
 
 - **src/DoorBird.API/** — Platform-independent library for the DoorBird HTTP API (`/bha-api/`)
 - **src/DoorBird.App/** — Avalonia UI desktop application (MVVM with ReactiveUI)
+  - **Video/** — in-process RTSP decoder, MP4 recorder, and the GPU zero-copy presenters (FFmpeg.AutoGen on the bundled FFmpeg libraries)
+- **tests/DoorBird.VideoSmoke/** — headless smoke test: records a few seconds from a real device and verifies the MP4
+- **native/ffmpeg/** — bundled FFmpeg libraries per runtime identifier, populated by `scripts/fetch-ffmpeg.sh`
 
 ## License
 

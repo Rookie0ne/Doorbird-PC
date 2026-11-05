@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.ReactiveUI;
-using DoorBird.App.Services;
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -18,13 +17,6 @@ sealed class Program
         _isUnixTerminal = RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
                        || RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
 
-        // Reap any ffmpeg subprocesses left behind by a previous run that crashed,
-        // was force-killed, or got disrupted by suspend/resume before its own cleanup ran.
-        FfmpegProcessTracker.KillOrphansFromPriorRuns();
-
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => FfmpegProcessTracker.KillOwn();
-        AppDomain.CurrentDomain.UnhandledException += (_, _) => FfmpegProcessTracker.KillOwn();
-
         if (_isUnixTerminal)
         {
             // Snapshot the controlling terminal's mode now so we can restore it byte-for-byte on exit,
@@ -41,7 +33,6 @@ sealed class Program
         }
         finally
         {
-            FfmpegProcessTracker.KillOwn();
             if (_isUnixTerminal) ResetTerminal();
         }
     }
@@ -49,6 +40,12 @@ sealed class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            // EGL first on Linux: the zero-copy video path imports VAAPI frames as
+            // DMA-BUFs, which is an EGL extension. GLX cannot do it. Software stays
+            // as the last resort for machines without usable GL.
+            .With(new X11PlatformOptions {
+                RenderingMode = new[] { X11RenderingMode.Egl, X11RenderingMode.Glx, X11RenderingMode.Software }
+            })
             .WithInterFont()
             .LogToTrace()
             .UseReactiveUI();

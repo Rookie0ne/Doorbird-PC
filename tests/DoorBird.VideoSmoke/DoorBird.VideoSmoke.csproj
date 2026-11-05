@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Headless smoke test for the in-process video stack. Records a few seconds of
+    RTSP video plus HTTP audio to MP4 through Mp4Recorder, then opens the result
+    with libavformat and prints what it contains. Needs a reachable DoorBird:
+      dotnet run -\-project tests/DoorBird.VideoSmoke -\- <host> <user> <password> [seconds]
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <PropertyGroup>
+    <FfmpegRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</FfmpegRid>
+    <FfmpegRid Condition="'$(FfmpegRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</FfmpegRid>
+    <FfmpegNativeDir>$(MSBuildProjectDirectory)/../../native/ffmpeg/$(FfmpegRid)/</FfmpegNativeDir>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(FfmpegNativeDir)')">
+    <Content Include="$(FfmpegNativeDir)*.so.*;$(FfmpegNativeDir)*.dll;$(FfmpegNativeDir)*.dylib"
+             Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DoorBird.App\DoorBird.App.csproj" />
+  </ItemGroup>
+</Project>

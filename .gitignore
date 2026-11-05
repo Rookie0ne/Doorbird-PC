@@ -27,3 +27,7 @@ CLAUDE.md
 
 ## App settings (may contain credentials)
 appsettings.*.json
+
+# Bundled FFmpeg libraries are fetched, not committed (scripts/fetch-ffmpeg.sh)
+native/ffmpeg/*/
+native/ffmpeg/.cache/

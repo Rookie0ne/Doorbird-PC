@@ -1,5 +1,17 @@
 # Hardware acceleration for the RTSP pipeline — measured, then declined
 
+> **Update (v0.5.0, November 2026):** the pipeline this document measured no longer
+> exists. RTSP is now decoded in-process with the bundled FFmpeg libraries
+> (`src/DoorBird.App/Video/`), and on Linux the frames go VAAPI → DMA-BUF → EGL →
+> Avalonia's compositor without touching system memory. The findings below are the
+> reason that design looks the way it does: finding 1 is why Auto mode only accepts
+> the full zero-copy chain, finding 3 is why it verifies by producing frames, and
+> finding 4 is why NVIDIA on Linux stays in software. Measured on the same machine
+> and stream, total CPU across all app threads: old pipeline 15.6% of one core,
+> new software path ~6.6%, new zero-copy path ~4.4%. The numbers below describe the
+> retired transcode pipeline and are kept for that history.
+
+
 Investigated 2026-08-27 on a Razer Blade 15 (2018 chassis, Intel Alder Lake-P
 Iris Xe + NVIDIA RTX 3070 Ti Laptop, Arch Linux, ffmpeg 8.x, Mesa 26.2.1,
 NVIDIA 610.57.04). **Deliberately not implemented** — the reasoning is at the

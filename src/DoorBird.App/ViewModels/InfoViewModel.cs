@@ -55,9 +55,9 @@ public class InfoViewModel : ViewModelBase {
             sb.AppendLine($"  PortAudio Native:  Not available ({ex.Message})");
         }
 
-        // FFmpeg (for RTSP mode)
-        var ffmpegVersion = GetFfmpegVersion();
-        sb.AppendLine($"  FFmpeg:            {ffmpegVersion}");
+        // Bundled FFmpeg libraries (RTSP decode and recording)
+        sb.AppendLine($"  FFmpeg:            {GetFfmpegVersion()}");
+        sb.AppendLine($"  HW acceleration:   {_deviceService.Settings.HardwareAcceleration}");
         sb.AppendLine();
 
         // Connection info
@@ -235,23 +235,9 @@ public class InfoViewModel : ViewModelBase {
     }
 
     private static string GetFfmpegVersion() {
-        try {
-            var psi = new System.Diagnostics.ProcessStartInfo {
-                FileName = "ffmpeg",
-                Arguments = "-version",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var proc = System.Diagnostics.Process.Start(psi);
-            if (proc == null) return "Not found";
-            var firstLine = proc.StandardOutput.ReadLine() ?? "";
-            proc.WaitForExit(2000);
-            // First line is like "ffmpeg version 6.1.1 Copyright ..."
-            return firstLine.Length > 0 ? firstLine : "Installed (unknown version)";
-        } catch {
-            return "Not found (required for RTSP mode)";
-        }
+        return Video.FfmpegNative.TryInitialize(out var err)
+            ? $"{Video.FfmpegNative.VersionString} (bundled)"
+            : $"Not available: {err}";
     }
 
     private static string GetPackageVersion(string assemblyPrefix) {

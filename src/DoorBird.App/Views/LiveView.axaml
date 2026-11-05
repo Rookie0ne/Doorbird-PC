@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:DoorBird.App.ViewModels"
+             xmlns:views="using:DoorBird.App.Views"
              x:Class="DoorBird.App.Views.LiveView"
              x:DataType="vm:LiveViewModel">
     <DockPanel>
@@ -122,7 +123,15 @@
             </Button>
         </StackPanel>
 
-        <!-- Video -->
-        <Image Source="{Binding CurrentImage}" Stretch="Uniform"/>
+        <!-- Video: the Image carries software/copied frames; the VideoSurface carries
+             GPU zero-copy frames. The view model clears CurrentImage while the GPU
+             path is active and the surface collapses when it is not, so only one
+             of them ever shows content. -->
+        <Panel>
+            <views:VideoSurface Presenter="{Binding GpuPresenter, Mode=OneWayToSource}"
+                                UnavailableReason="{Binding GpuUnavailableReason, Mode=OneWayToSource}"
+                                IsActive="{Binding IsGpuPresenting}"/>
+            <Image Source="{Binding CurrentImage}" Stretch="Uniform"/>
+        </Panel>
     </DockPanel>
 </UserControl>

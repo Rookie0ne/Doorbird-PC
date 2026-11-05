@@ -1,0 +1,90 @@
+# Builds the LGPL FFmpeg shared libraries the app bundles on macOS. No prebuilt
+# LGPL shared build exists for macOS, so this is the macOS counterpart of
+# scripts/fetch-ffmpeg.sh. Output: an artifact per architecture containing the
+# five dylibs plus FFMPEG-LICENSE.txt, laid out for native/ffmpeg/<rid>/.
+#
+# Keep the FFmpeg tag in sync with FFmpeg.AutoGen in DoorBird.App.csproj (8.1).
+name: ffmpeg-macos
+
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg_tag:
+        description: FFmpeg git tag to build
+        default: n8.1.3
+        required: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - rid: osx-arm64
+            runner: macos-14
+            arch: arm64
+          - rid: osx-x64
+            runner: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Install build tools
+        run: brew install nasm pkg-config
+
+      - name: Fetch FFmpeg source
+        run: |
+          git clone --depth 1 --branch "${{ github.event.inputs.ffmpeg_tag }}" https://git.ffmpeg.org/ffmpeg.git ffmpeg
+
+      - name: Configure (LGPL, shared, minimal)
+        working-directory: ffmpeg
+        run: |
+          # Only what DoorBird-PC uses: H.264 + mu-law decode, AAC encode, RTSP/HTTP
+          # input, MP4 output, VideoToolbox hardware decode. No GPL components.
+          ./configure \
+            --prefix="$PWD/out" \
+            --arch=${{ matrix.arch }} \
+            --enable-shared --disable-static \
+            --disable-programs --disable-doc \
+            --disable-avdevice --disable-avfilter --disable-postproc \
+            --disable-everything \
+            --enable-decoder=h264,pcm_mulaw,aac \
+            --enable-encoder=aac \
+            --enable-parser=h264,aac \
+            --enable-demuxer=rtsp,mulaw,mov,h264,sdp,rtp \
+            --enable-muxer=mp4,mov \
+            --enable-protocol=file,http,tcp,udp,rtp \
+            --enable-hwaccel=h264_videotoolbox \
+            --enable-videotoolbox \
+            --enable-swscale --enable-swresample \
+            --disable-debug
+          cat ffbuild/config.log | grep -i "license" | head -3
+
+      - name: Build
+        working-directory: ffmpeg
+        run: make -j"$(sysctl -n hw.ncpu)" && make install
+
+      - name: Collect
+        run: |
+          mkdir -p "native/ffmpeg/${{ matrix.rid }}"
+          for lib in avutil swresample swscale avcodec avformat; do
+            # Real file is lib<name>.<major>.<minor>.<micro>.dylib; copy under the
+            # lib<name>.<major>.dylib name FFmpeg.AutoGen loads.
+            src=$(ls ffmpeg/out/lib/lib$lib.*.*.*.dylib | head -1)
+            major=$(basename "$src" | sed -E 's/lib'"$lib"'\.([0-9]+)\..*/\1/')
+            cp "$src" "native/ffmpeg/${{ matrix.rid }}/lib$lib.$major.dylib"
+          done
+          cp ffmpeg/COPYING.LGPLv2.1 "native/ffmpeg/${{ matrix.rid }}/FFMPEG-LICENSE.txt"
+          # Make the dylibs find each other next to the executable, not in the build prefix.
+          cd "native/ffmpeg/${{ matrix.rid }}"
+          for f in *.dylib; do
+            install_name_tool -id "@loader_path/$f" "$f"
+            for dep in $(otool -L "$f" | awk '/ffmpeg\/out\/lib/ {print $1}'); do
+              install_name_tool -change "$dep" "@loader_path/$(basename "$dep" | sed -E 's/(lib[a-z]+\.[0-9]+)\..*\.dylib/\1.dylib/')" "$f"
+            done
+          done
+          otool -L libavcodec.*.dylib
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.rid }}
+          path: native/ffmpeg/${{ matrix.rid }}

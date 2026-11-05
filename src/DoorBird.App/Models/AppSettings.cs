@@ -19,6 +19,9 @@ public class AppSettings {
     /// <summary>Live view mode: "Rtsp", "Mjpeg", or "Snapshot". Default is MJPEG.</summary>
     public string LiveViewMode { get; set; } = "Mjpeg";
 
+    /// <summary>RTSP hardware acceleration: "Auto", "Enabled", or "Disabled". Default is Auto.</summary>
+    public string HardwareAcceleration { get; set; } = "Auto";
+
     /// <summary>Saved audio output device name. Null/empty = system default.</summary>
     public string? AudioOutputDevice { get; set; }
 

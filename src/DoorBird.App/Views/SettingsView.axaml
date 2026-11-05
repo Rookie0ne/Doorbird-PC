@@ -42,6 +42,15 @@
                           HorizontalAlignment="Stretch"/>
             </StackPanel>
 
+            <StackPanel Spacing="5">
+                <TextBlock Text="Hardware Acceleration (RTSP)"/>
+                <ComboBox ItemsSource="{Binding HardwareAccelerationModes}"
+                          SelectedItem="{Binding SelectedHardwareAcceleration}"
+                          HorizontalAlignment="Stretch"/>
+                <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap"
+                           Text="Auto uses the GPU only when frames can stay on it all the way to the screen, and verifies that with real frames. Enabled forces GPU decoding. Disabled decodes on the CPU."/>
+            </StackPanel>
+
             <CheckBox IsChecked="{Binding LiveViewMaximized}" Content="Launch Live View maximized"/>
 
             <Separator Margin="0,5"/>
