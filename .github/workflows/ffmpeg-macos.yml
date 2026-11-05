@@ -44,12 +44,12 @@ jobs:
             --arch=${{ matrix.arch }} \
             --enable-shared --disable-static \
             --disable-programs --disable-doc \
-            --disable-avdevice --disable-avfilter --disable-postproc \
+            --disable-avdevice --disable-avfilter \
             --disable-everything \
             --enable-decoder=h264,pcm_mulaw,aac \
             --enable-encoder=aac \
             --enable-parser=h264,aac \
-            --enable-demuxer=rtsp,mulaw,mov,h264,sdp,rtp \
+            --enable-demuxer=rtsp,pcm_mulaw,mov,h264,sdp,rtp \
             --enable-muxer=mp4,mov \
             --enable-protocol=file,http,tcp,udp,rtp \
             --enable-hwaccel=h264_videotoolbox \
