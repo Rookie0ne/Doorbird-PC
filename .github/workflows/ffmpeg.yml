@@ -59,7 +59,13 @@ jobs:
     steps:
       - name: Install build tools
         run: |
-          apt-get update
+          # Debian 11 left the live mirrors in 2026; its packages are on archive.debian.org.
+          rm -rf /etc/apt/sources.list.d/*
+          printf '%s\n' \
+            'deb http://archive.debian.org/debian bullseye main' \
+            'deb http://archive.debian.org/debian-security bullseye-security main' \
+            > /etc/apt/sources.list
+          apt-get -o Acquire::Check-Valid-Until=false update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             build-essential git ca-certificates python3 nasm pkg-config patchelf \
             libva-dev libdrm-dev
@@ -107,7 +113,7 @@ jobs:
           grep -E 'License' ffbuild/config.log | head -2
           # Capability lists lie; make sure the hardware path really got compiled in.
           for sym in CONFIG_VAAPI CONFIG_LIBDRM CONFIG_H264_VAAPI_HWACCEL CONFIG_H264_DECODER CONFIG_RTSP_DEMUXER CONFIG_AAC_ENCODER; do
-            grep -q "#define $sym 1" config.h || { echo "$sym is not enabled"; exit 1; }
+            grep -qh "#define $sym 1" config.h config_components.h || { echo "$sym is not enabled"; exit 1; }
           done
 
       - name: Build
@@ -172,7 +178,7 @@ jobs:
             --extra-ldflags="-static-libgcc"
           grep -E 'License' ffbuild/config.log | head -2
           for sym in CONFIG_D3D11VA CONFIG_H264_D3D11VA_HWACCEL CONFIG_H264_DECODER CONFIG_RTSP_DEMUXER CONFIG_AAC_ENCODER; do
-            grep -q "#define $sym 1" config.h || { echo "$sym is not enabled"; exit 1; }
+            grep -qh "#define $sym 1" config.h config_components.h || { echo "$sym is not enabled"; exit 1; }
           done
 
       - name: Build
@@ -232,7 +238,7 @@ jobs:
             --enable-videotoolbox --enable-hwaccel=h264_videotoolbox
           grep -E 'License' ffbuild/config.log | head -2
           for sym in CONFIG_VIDEOTOOLBOX CONFIG_H264_VIDEOTOOLBOX_HWACCEL CONFIG_H264_DECODER CONFIG_RTSP_DEMUXER CONFIG_AAC_ENCODER; do
-            grep -q "#define $sym 1" config.h || { echo "$sym is not enabled"; exit 1; }
+            grep -qh "#define $sym 1" config.h config_components.h || { echo "$sym is not enabled"; exit 1; }
           done
 
       - name: Build
