@@ -17,7 +17,7 @@
 set -euo pipefail
 
 REPO="Rookie0ne/Doorbird-PC"
-RUN_ID="${FFMPEG_RUN_ID:-latest}"
+RUN_ID="${FFMPEG_RUN_ID:-42034835841}"
 RIDS="linux-x64 linux-arm64 win-x64 osx-arm64 osx-x64"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
