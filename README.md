@@ -17,6 +17,24 @@ Based on the original [DoorBird-Windows](https://gitlab.com/klikini/DoorBird-Win
 - **Settings Persistence** — All configuration saved to a local JSON file
 - **Cross-Platform** — Runs on Linux, Windows, and macOS using Avalonia UI and .NET 8
 
+## Download
+
+Prebuilt, self-contained binaries for every platform are on the [Releases](https://github.com/Rookie0ne/Doorbird-PC/releases/latest) page. No .NET or FFmpeg install is needed.
+
+| File | Platform |
+|------|----------|
+| `DoorBird-PC-linux-x64.zip` | Linux x64 (glibc 2.29 or newer: Ubuntu 20.04+, Debian 11+, Fedora, Arch) |
+| `DoorBird-PC-linux-arm64.zip` | Linux ARM64 (Raspberry Pi 4/5, other aarch64 boards) |
+| `DoorBird-PC-win-x64.zip` | Windows 10/11 x64 |
+| `DoorBird-PC-macos-arm64.zip` | macOS 11+ on Apple Silicon (M1/M2/M3/M4) |
+| `DoorBird-PC-macos-x64.zip` | macOS 11+ on Intel |
+
+Unzip and run `DoorBird.App` (`DoorBird.App.exe` on Windows). The binaries are not code-signed: Windows SmartScreen and macOS Gatekeeper will warn on first launch. On macOS, if the app refuses to open, clear the quarantine flag on the unzipped folder:
+
+```bash
+xattr -dr com.apple.quarantine /path/to/unzipped/folder
+```
+
 ## Prerequisites
 
 ### Linux (building from source)
@@ -48,7 +66,9 @@ sudo apt install libportaudio2     # Required — intercom audio
 
 No FFmpeg install is needed: the release ships its own FFmpeg libraries next to the executable.
 For GPU zero-copy video on Intel or AMD, the VA-API driver for your GPU must be present
-(`intel-media-driver` / `mesa` on most distributions). Without it the app decodes in software.
+(`intel-media-driver` / `mesa` on most distributions). Without it, or on NVIDIA, the app
+decodes in software, which still uses far less CPU than 0.4.x. See
+[HARDWARE-ACCELERATION.md](HARDWARE-ACCELERATION.md) for the measurements and why.
 
 ### macOS (building from source)
 
@@ -68,6 +88,8 @@ scripts/fetch-ffmpeg.sh osx-arm64  # or osx-x64
 ```bash
 brew install portaudio             # Required — intercom audio
 ```
+
+No FFmpeg install is needed; hardware decode uses VideoToolbox when *Hardware Acceleration* is set to *Enabled*.
 
 ### Windows
 
@@ -127,7 +149,7 @@ On first run, go to **Settings** and configure:
 - **Device Host** — IP address or hostname of your DoorBird device
 - **Username / Password** — Credentials from the DoorBird mobile app
 - **Video Mode** — RTSP Stream (H.264, lowest latency), MJPEG Stream (default), or Snapshot Polling (1 fps fallback)
-- **Hardware Acceleration** (RTSP only) — *Auto* (default) uses the GPU only when decoded frames can stay on it all the way to the screen, and verifies that by producing real frames; otherwise it decodes in software. *Enabled* forces GPU decoding even when frames must be copied back. *Disabled* always decodes on the CPU. The status line under the video shows which path is active, e.g. `RTSP (VAAPI zero-copy)`.
+- **Hardware Acceleration** (RTSP only) — *Auto* (default) uses the GPU only when decoded frames can stay on it all the way to the screen, and verifies that by producing real frames; otherwise it decodes in software. *Enabled* forces GPU decoding even when frames must be copied back. *Disabled* always decodes on the CPU. The status line under the video shows which path is active, e.g. `RTSP (VAAPI zero-copy)`. Zero-copy exists on Linux (VA-API) today; Windows and macOS decode in software in *Auto* and through D3D11VA / VideoToolbox in *Enabled*. Background: [HARDWARE-ACCELERATION.md](HARDWARE-ACCELERATION.md).
 - **Audio Output / Input** — Select specific speaker and microphone, or leave as system default
 - **Notification Port** — Port for receiving push notifications (default: 8080)
 - **Recording Path** — Directory for saving captured images
@@ -156,7 +178,9 @@ netsh http add urlacl url=http://+:8080/ user=Everyone
 - **src/DoorBird.App/** — Avalonia UI desktop application (MVVM with ReactiveUI)
   - **Video/** — in-process RTSP decoder, MP4 recorder, and the GPU zero-copy presenters (FFmpeg.AutoGen on the bundled FFmpeg libraries)
 - **tests/DoorBird.VideoSmoke/** — headless smoke test: records a few seconds from a real device and verifies the MP4
-- **native/ffmpeg/** — bundled FFmpeg libraries per runtime identifier, populated by `scripts/fetch-ffmpeg.sh`
+- **native/ffmpeg/** — bundled FFmpeg libraries per runtime identifier, populated by `scripts/fetch-ffmpeg.sh` (see its README for what is compiled in)
+- **.github/workflows/ffmpeg.yml** — builds the trimmed LGPL FFmpeg libraries for all five platforms; `scripts/fetch-ffmpeg.sh` downloads its artifacts
+- **HARDWARE-ACCELERATION.md** — research notes and measurements behind the video pipeline design
 
 ## License
 
