@@ -32,7 +32,11 @@ jobs:
 
       - name: Fetch FFmpeg source
         run: |
-          git clone --depth 1 --branch "${{ github.event.inputs.ffmpeg_tag }}" https://git.ffmpeg.org/ffmpeg.git ffmpeg
+          # The GitHub mirror is far more reliable from Actions runners than
+          # git.ffmpeg.org, which has timed out outright; keep upstream as fallback.
+          tag="${{ github.event.inputs.ffmpeg_tag }}"
+          git clone --depth 1 --branch "$tag" https://github.com/FFmpeg/FFmpeg.git ffmpeg \
+            || git clone --depth 1 --branch "$tag" https://git.ffmpeg.org/ffmpeg.git ffmpeg
 
       - name: Configure (LGPL, shared, minimal)
         working-directory: ffmpeg
