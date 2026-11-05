@@ -182,6 +182,7 @@ public sealed unsafe class RtspVideoDecoder : IDisposable {
 
             if (wantHw && hwType != AVHWDeviceType.AV_HWDEVICE_TYPE_NONE) {
                 try {
+                    if (hwType == AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI) EnsureVaapiRuntime();
                     _hwPixFmt = FindHwPixelFormat(codec, hwType);
                     FfmpegNative.ThrowIfError(
                         ffmpeg.av_hwdevice_ctx_create(&hwDevice, hwType, presenter?.PreferredDevice, null, 0),
@@ -365,6 +366,20 @@ public sealed unsafe class RtspVideoDecoder : IDisposable {
         AVPixelFormat.AV_PIX_FMT_VULKAN => AVHWDeviceType.AV_HWDEVICE_TYPE_VULKAN,
         _ => AVHWDeviceType.AV_HWDEVICE_TYPE_NONE
     };
+
+    /// <summary>
+    /// The bundled Linux libraries reach libva/libdrm through dlopen shims (see
+    /// .github/workflows/ffmpeg.yml), so they load on machines without a VA-API stack.
+    /// A shim whose library is missing aborts the process on first call, though, so
+    /// check up front and fail the session like any other hardware error instead.
+    /// </summary>
+    private static void EnsureVaapiRuntime() {
+        if (!OperatingSystem.IsLinux()) return;
+        foreach (var lib in new[] { "libva.so.2", "libva-drm.so.2", "libdrm.so.2" }) {
+            if (!NativeLibrary.TryLoad(lib, out _))
+                throw new InvalidOperationException($"{lib} is not installed; VA-API needs the system libva and libdrm");
+        }
+    }
 
     /// <summary>The platform's native decode API, used when acceleration is forced without a presenter.</summary>
     public static AVHWDeviceType DefaultDeviceType() {

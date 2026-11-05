@@ -34,8 +34,9 @@ sudo dnf install portaudio        # Fedora
 # or
 sudo pacman -S portaudio           # Arch
 
-# Bundled FFmpeg libraries (RTSP video mode and recording). Downloaded once,
-# not installed system-wide; see native/ffmpeg/README.md
+# Bundled FFmpeg libraries (RTSP video mode and recording). Downloaded once from
+# this repo's ffmpeg workflow artifacts (needs `gh auth login`), not installed
+# system-wide; see native/ffmpeg/README.md
 scripts/fetch-ffmpeg.sh linux-x64  # or linux-arm64
 ```
 
@@ -58,8 +59,8 @@ brew install dotnet-sdk
 # PortAudio (required for intercom audio)
 brew install portaudio
 
-# Bundled FFmpeg libraries: built by the ffmpeg-macos GitHub Actions workflow
-# (no LGPL shared build exists to download). Drop the artifact into native/ffmpeg/<rid>/.
+# Bundled FFmpeg libraries (needs the GitHub CLI, `brew install gh`)
+scripts/fetch-ffmpeg.sh osx-arm64  # or osx-x64
 ```
 
 ### macOS (running published binary)
@@ -71,7 +72,7 @@ brew install portaudio             # Required — intercom audio
 ### Windows
 
 - For building from source: install the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- For building from source, also run `scripts/fetch-ffmpeg.sh win-x64` (Git Bash or WSL) to download the bundled FFmpeg libraries
+- For building from source, also run `scripts/fetch-ffmpeg.sh win-x64` (Git Bash or WSL, needs the GitHub CLI) to download the bundled FFmpeg libraries
 - For running a published binary: no prerequisites. PortAudio and FFmpeg are bundled.
 
 ## Build & Run

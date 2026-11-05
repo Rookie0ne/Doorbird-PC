@@ -1,0 +1,270 @@
+# Builds the trimmed LGPL FFmpeg shared libraries the app bundles, one artifact per
+# runtime identifier (linux-x64, linux-arm64, win-x64, osx-arm64, osx-x64). Each
+# artifact holds the five libraries plus FFMPEG-LICENSE.txt, laid out for
+# native/ffmpeg/<rid>/; scripts/fetch-ffmpeg.sh downloads them.
+#
+# Only what DoorBird-PC uses is compiled in: H.264 + mu-law decode, AAC encode,
+# RTSP/HTTP input, MP4 output, and the one hardware decode API the decoder asks
+# for per platform (VA-API, D3D11VA, VideoToolbox). No GPL components. This keeps
+# each set at ~5 MB instead of the ~120 MB of a full-codec build.
+#
+# Keep the FFmpeg tag in sync with FFmpeg.AutoGen in DoorBird.App.csproj (8.1).
+name: ffmpeg
+
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg_tag:
+        description: FFmpeg git tag to build
+        default: n8.1.3
+        required: true
+
+env:
+  COMMON_CONFIGURE: >-
+    --enable-shared --disable-static
+    --disable-programs --disable-doc
+    --disable-avdevice --disable-avfilter
+    --disable-everything
+    --enable-decoder=h264,pcm_mulaw,aac
+    --enable-encoder=aac
+    --enable-parser=h264,aac
+    --enable-demuxer=rtsp,pcm_mulaw,mov,h264,sdp,rtp
+    --enable-muxer=mp4,mov
+    --enable-protocol=file,http,tcp,udp,rtp
+    --enable-swscale --enable-swresample
+    --disable-debug
+  # The GitHub mirror is far more reliable from Actions runners than
+  # git.ffmpeg.org, which has timed out outright; keep upstream as fallback.
+  FETCH: >-
+    git clone --depth 1 --branch "$FFMPEG_TAG" https://github.com/FFmpeg/FFmpeg.git ffmpeg
+    || git clone --depth 1 --branch "$FFMPEG_TAG" https://git.ffmpeg.org/ffmpeg.git ffmpeg
+  FFMPEG_TAG: ${{ github.event.inputs.ffmpeg_tag }}
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            runner: ubuntu-24.04
+            triple: x86_64-linux-gnu
+          - rid: linux-arm64
+            runner: ubuntu-24.04-arm
+            triple: aarch64-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    # Debian 11 sets the glibc floor (2.31): the libraries load on Ubuntu 20.04,
+    # Debian 11, RHEL 9 and anything newer.
+    container: debian:bullseye
+    steps:
+      - name: Install build tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential git ca-certificates python3 nasm pkg-config patchelf \
+            libva-dev libdrm-dev
+
+      - name: Fetch FFmpeg source
+        run: eval "$FETCH"
+
+      - name: Generate dlopen shims for libva and libdrm
+        run: |
+          # Same trick as BtbN's builds: route VA-API and DRM calls through Implib.so
+          # trampolines so the libraries carry no NEEDED entry for libva/libdrm. They
+          # then load on machines without a VA-API stack, and libva is only dlopen'ed
+          # when the app actually creates a VAAPI device (RtspVideoDecoder checks the
+          # libraries exist first, because a shim that cannot find its library aborts).
+          git clone --filter=blob:none https://github.com/yugr/Implib.so implib
+          git -C implib checkout a3e167cf978a5b8a38ec0f710d8c4331e8dcdd9a
+          shim="$PWD/shim"
+          mkdir -p "$shim/lib/pkgconfig"
+          libdir="/usr/lib/${{ matrix.triple }}"
+          for lib in va va-drm drm; do
+            so="lib$lib.so.2"
+            work="$(mktemp -d)"
+            ( cd "$work"
+              python3 "$GITHUB_WORKSPACE/implib/implib-gen.py" --target ${{ matrix.triple }} "$libdir/$so"
+              gcc -fPIC -O2 -Wa,--noexecstack -DIMPLIB_HIDDEN_SHIMS -c *.tramp.S *.init.c
+              ar rcs "$shim/lib/lib$lib.a" *.o )
+            ver="$(pkg-config --modversion "lib$lib")"
+            {
+              echo "Name: lib$lib"
+              echo "Description: dlopen shim for $so"
+              echo "Version: $ver"
+              echo "Libs: -L$shim/lib -l$lib -ldl -lpthread"
+              echo "Cflags: -I/usr/include/libdrm"
+            } > "$shim/lib/pkgconfig/lib$lib.pc"
+          done
+          echo "PKG_CONFIG_PATH=$shim/lib/pkgconfig" >> "$GITHUB_ENV"
+          ls -la "$shim/lib"
+
+      - name: Configure (LGPL, shared, minimal, VA-API)
+        working-directory: ffmpeg
+        run: |
+          ./configure --prefix="$PWD/out" $COMMON_CONFIGURE \
+            --enable-vaapi --enable-libdrm --disable-xlib \
+            --enable-hwaccel=h264_vaapi
+          grep -E 'License' ffbuild/config.log | head -2
+          # Capability lists lie; make sure the hardware path really got compiled in.
+          for sym in CONFIG_VAAPI CONFIG_LIBDRM CONFIG_H264_VAAPI_HWACCEL CONFIG_H264_DECODER CONFIG_RTSP_DEMUXER CONFIG_AAC_ENCODER; do
+            grep -q "#define $sym 1" config.h || { echo "$sym is not enabled"; exit 1; }
+          done
+
+      - name: Build
+        working-directory: ffmpeg
+        run: make -j"$(nproc)" && make install
+
+      - name: Collect and verify
+        run: |
+          out="native/ffmpeg/${{ matrix.rid }}"
+          mkdir -p "$out"
+          for lib in avutil swresample swscale avcodec avformat; do
+            # Real file is lib<name>.so.<major>.<minor>.<micro>; copy it under the
+            # lib<name>.so.<major> soname FFmpeg.AutoGen loads.
+            src=$(ls ffmpeg/out/lib/lib$lib.so.*.*.* | head -1)
+            major=$(basename "$src" | sed -E 's/lib'"$lib"'\.so\.([0-9]+)\..*/\1/')
+            cp "$src" "$out/lib$lib.so.$major"
+          done
+          cp ffmpeg/COPYING.LGPLv2.1 "$out/FFMPEG-LICENSE.txt"
+          cd "$out"
+          for f in *.so.*; do
+            # Find each other next to the executable, wherever that is.
+            patchelf --set-rpath '$ORIGIN' "$f"
+            echo "== $f"
+            readelf -d "$f" | grep -E 'NEEDED|RUNPATH'
+            if readelf -d "$f" | grep NEEDED | grep -qE 'libva|libdrm'; then
+              echo "hard dependency on libva/libdrm, shims did not take"; exit 1
+            fi
+          done
+          echo "glibc floor: $(objdump -T *.so.* | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)"
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.rid }}
+          path: native/ffmpeg/${{ matrix.rid }}
+
+  windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            mingw-w64 nasm pkg-config
+          # win32 threading model: no libwinpthread-1.dll to ship. FFmpeg uses
+          # w32threads itself.
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-win32
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-win32
+          x86_64-w64-mingw32-gcc --version | head -1
+
+      - name: Fetch FFmpeg source
+        run: eval "$FETCH"
+
+      - name: Configure (LGPL, shared, minimal, D3D11VA)
+        working-directory: ffmpeg
+        run: |
+          ./configure --prefix="$PWD/out" $COMMON_CONFIGURE \
+            --arch=x86_64 --target-os=mingw64 --cross-prefix=x86_64-w64-mingw32- \
+            --enable-cross-compile --pkg-config=pkg-config \
+            --disable-pthreads --enable-w32threads \
+            --enable-d3d11va --enable-hwaccel=h264_d3d11va \
+            --extra-ldflags="-static-libgcc"
+          grep -E 'License' ffbuild/config.log | head -2
+          for sym in CONFIG_D3D11VA CONFIG_H264_D3D11VA_HWACCEL CONFIG_H264_DECODER CONFIG_RTSP_DEMUXER CONFIG_AAC_ENCODER; do
+            grep -q "#define $sym 1" config.h || { echo "$sym is not enabled"; exit 1; }
+          done
+
+      - name: Build
+        working-directory: ffmpeg
+        run: make -j"$(nproc)" && make install
+
+      - name: Collect and verify
+        run: |
+          out="native/ffmpeg/win-x64"
+          mkdir -p "$out"
+          # mingw names them <name>-<major>.dll, which is what FFmpeg.AutoGen loads.
+          cp ffmpeg/out/bin/*.dll "$out/"
+          cp ffmpeg/COPYING.LGPLv2.1 "$out/FFMPEG-LICENSE.txt"
+          cd "$out"
+          for f in *.dll; do
+            echo "== $f"
+            x86_64-w64-mingw32-objdump -p "$f" | grep 'DLL Name'
+          done
+          if x86_64-w64-mingw32-objdump -p *.dll | grep 'DLL Name' | grep -iqE 'libgcc|winpthread|libstdc'; then
+            echo "DLLs depend on a mingw runtime DLL that is not shipped"; exit 1
+          fi
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-win-x64
+          path: native/ffmpeg/win-x64
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: osx-arm64
+            runner: macos-15
+            arch: arm64
+          - rid: osx-x64
+            runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    env:
+      # Without this clang targets the runner's own macOS version and the dylibs
+      # refuse to load on anything older. 11.0 is the arm64 floor.
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - name: Install build tools
+        run: brew install nasm pkg-config
+
+      - name: Fetch FFmpeg source
+        run: eval "$FETCH"
+
+      - name: Configure (LGPL, shared, minimal, VideoToolbox)
+        working-directory: ffmpeg
+        run: |
+          ./configure --prefix="$PWD/out" $COMMON_CONFIGURE \
+            --arch=${{ matrix.arch }} \
+            --enable-videotoolbox --enable-hwaccel=h264_videotoolbox
+          grep -E 'License' ffbuild/config.log | head -2
+          for sym in CONFIG_VIDEOTOOLBOX CONFIG_H264_VIDEOTOOLBOX_HWACCEL CONFIG_H264_DECODER CONFIG_RTSP_DEMUXER CONFIG_AAC_ENCODER; do
+            grep -q "#define $sym 1" config.h || { echo "$sym is not enabled"; exit 1; }
+          done
+
+      - name: Build
+        working-directory: ffmpeg
+        run: make -j"$(sysctl -n hw.ncpu)" && make install
+
+      - name: Collect and verify
+        run: |
+          out="native/ffmpeg/${{ matrix.rid }}"
+          mkdir -p "$out"
+          for lib in avutil swresample swscale avcodec avformat; do
+            # Real file is lib<name>.<major>.<minor>.<micro>.dylib; copy under the
+            # lib<name>.<major>.dylib name FFmpeg.AutoGen loads.
+            src=$(ls ffmpeg/out/lib/lib$lib.*.*.*.dylib | head -1)
+            major=$(basename "$src" | sed -E 's/lib'"$lib"'\.([0-9]+)\..*/\1/')
+            cp "$src" "$out/lib$lib.$major.dylib"
+          done
+          cp ffmpeg/COPYING.LGPLv2.1 "$out/FFMPEG-LICENSE.txt"
+          # Make the dylibs find each other next to the executable, not in the build prefix.
+          cd "$out"
+          for f in *.dylib; do
+            install_name_tool -id "@loader_path/$f" "$f"
+            for dep in $(otool -L "$f" | awk '/ffmpeg\/out\/lib/ {print $1}'); do
+              install_name_tool -change "$dep" "@loader_path/$(basename "$dep" | sed -E 's/(lib[a-z]+\.[0-9]+)\..*\.dylib/\1.dylib/')" "$f"
+            done
+            echo "== $f"
+            otool -L "$f" | tail -n +2
+            otool -l "$f" | grep -A3 LC_BUILD_VERSION | grep minos
+          done
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.rid }}
+          path: native/ffmpeg/${{ matrix.rid }}
