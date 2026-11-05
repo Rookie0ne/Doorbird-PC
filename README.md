@@ -91,6 +91,9 @@ Build self-contained executables that don't require the .NET SDK to be installed
 # Linux x64
 dotnet publish src/DoorBird.App -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true -o publish/linux-x64
 
+# Linux ARM64 (Raspberry Pi 4/5, other aarch64 boards)
+dotnet publish src/DoorBird.App -c Release -r linux-arm64 --self-contained -p:PublishSingleFile=true -o publish/linux-arm64
+
 # Windows x64
 dotnet publish src/DoorBird.App -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/win-x64
 
@@ -104,8 +107,9 @@ dotnet publish src/DoorBird.App -c Release -r osx-x64 --self-contained -p:Publis
 The resulting binary is in the `publish/` directory and can be run directly:
 
 ```bash
-# Linux
+# Linux (x64 or arm64)
 ./publish/linux-x64/DoorBird.App
+./publish/linux-arm64/DoorBird.App
 
 # Windows
 publish\win-x64\DoorBird.App.exe

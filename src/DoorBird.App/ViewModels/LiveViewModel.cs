@@ -428,6 +428,14 @@ public class LiveViewModel : ViewModelBase, IDisposable {
         while (!ct.IsCancellationRequested) {
             try {
                 _lastFrameAt = DateTime.UtcNow;
+                // Transcodes to MJPEG so this can share ReadMjpegFrames with the
+                // device's own MJPEG mode. Hardware acceleration was measured and
+                // declined -- see HARDWARE-ACCELERATION.md. Short version: only a
+                // full-GPU pipeline is faster than software (Intel QSV, -68% CPU);
+                // every decode-only variant is SLOWER, VA-API's MJPEG encoder is
+                // broken here despite being advertised, and NVIDIA has no MJPEG
+                // encoder at all. Not worth it because this app's own JPEG decode
+                // costs more than ffmpeg does.
                 var psi = new ProcessStartInfo {
                     FileName = ffmpegPath,
                     Arguments = $"-rtsp_transport tcp -i \"{rtspUri}\" -f mjpeg -q:v 3 -an pipe:1",
